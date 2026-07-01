@@ -176,7 +176,6 @@ def _armar_fila_verificada(d):
     def set_col(key, valor):
         fila[COLS[key] - 1] = valor
 
-    set_col('DA',                   ahora)
     set_col('TIPO_COMPROBANTE',     d['tipo'])
     set_col('NUMERO',               d['numero'])
     set_col('PUNTO_VENTA',          d['punto_venta'])
