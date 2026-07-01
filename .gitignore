@@ -1,0 +1,17 @@
+# Datos propios de cada instalacion (NO se versionan)
+facturas.xlsx
+credentials.json
+token.json
+estado.json
+error.log
+
+# proveedores.xlsx SI va en git (configuracion compartida)
+!proveedores.xlsx
+
+# Python / build
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.spec
+!ProcesadorFacturas.spec
