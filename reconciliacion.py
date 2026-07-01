@@ -78,7 +78,13 @@ def _a_texto(key, val):
         return ''
     if key in _NUM_KEYS:
         f = float(val)
-        return f'{f:,.2f}' if f != 0.0 else '0'
+        if f == 0.0:
+            return '0'
+        # Formato AR (punto de miles, coma decimal): es el que _num() espera
+        # al releer el campo, aunque el usuario no lo haya editado (línea 507
+        # llama get_valor() para todos los campos siempre).
+        texto_us = f'{f:,.2f}'  # '1,234.56'
+        return texto_us.replace(',', '@').replace('.', ',').replace('@', '.')
     if key in _INT_KEYS:
         return str(int(val)) if val else ''
     return str(val)
