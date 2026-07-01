@@ -17,7 +17,9 @@ class ExcelManager:
                 self.wb = openpyxl.load_workbook(str(EXCEL_FACTURAS))
             else:
                 self.wb = openpyxl.Workbook()
-                self.wb.active.title = 'FACTURAS'
+                # Quitar la hoja por defecto para que FACTURAS se cree con
+                # create_sheet (y reciba sus encabezados) igual que las demás.
+                self.wb.remove(self.wb.active)
         except PermissionError:
             raise PermissionError(
                 f'No se puede abrir "{EXCEL_FACTURAS.name}" porque está abierto '
