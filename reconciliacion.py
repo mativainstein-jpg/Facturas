@@ -47,7 +47,7 @@ _CAMPOS = [
     ('posicion',                'Posición',           False),
     ('mes',                     'Mes',                False),
     ('anio',                    'Año',                False),
-    ('tasa',                    'Tasa',               False),
+    ('tasa',                    'Tasa',               True),
     ('gasto',                   'Gasto',              True),
     ('rubro',                   'Rubro',              True),
     ('codigo_operacion',        'Cód. Operación',     False),
@@ -56,7 +56,7 @@ _CAMPOS = [
 ]
 
 _NUM_KEYS = {k for k, *_ in _CAMPOS if k.endswith('_num')}
-_INT_KEYS = {'mes', 'anio', 'tasa', 'gasto', 'rubro'}
+_INT_KEYS = {'mes', 'anio', 'gasto', 'rubro'}
 
 # Campos que siempre son VERIFICAR si están vacíos
 _CRITICOS = {k for k, _, crit in _CAMPOS if crit}
@@ -76,6 +76,10 @@ def _a_texto(key, val):
     """Convierte un valor del dict a texto para mostrar en el input."""
     if val is None:
         return ''
+    if key == 'tasa':
+        # Puede ser 0 (monotributista) o tener decimales (10,5%): no usar la
+        # regla de _INT_KEYS (que trata 0 como vacío y trunca los decimales).
+        return f'{float(val):g}'.replace('.', ',')
     if key in _NUM_KEYS:
         f = float(val)
         if f == 0.0:
@@ -95,7 +99,7 @@ def _de_texto(key, text):
     text = text.strip()
     if not text:
         return None
-    if key in _NUM_KEYS:
+    if key == 'tasa' or key in _NUM_KEYS:
         # Acepta formato US (1234.56) y AR (1.234,56); rechaza texto no numérico
         # en lugar de adivinar (evita guardar un valor falso silenciosamente).
         if not re.match(r'^-?[\d.,]+$', text):

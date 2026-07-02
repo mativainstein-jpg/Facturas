@@ -236,6 +236,10 @@ def _armar_fila_verificada(d):
         fila[COLS['IVA'] - 1] = 'VERIFICAR'
         cols_verificar.append(COLS['IVA'])
 
+    if d['tipo'] == 'FCA' and d['tasa'] is None:
+        fila[COLS['TASA'] - 1] = 'VERIFICAR'
+        cols_verificar.append(COLS['TASA'])
+
     if d['total_num'] is None or d['total_num'] <= 0:
         fila[COLS['TOTAL'] - 1] = 'VERIFICAR'
         cols_verificar.append(COLS['TOTAL'])

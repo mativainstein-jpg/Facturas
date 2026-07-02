@@ -66,6 +66,22 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     total_num    = _num_o_none(total)
     precio_num   = _num(precio_raw)
 
+    # Tasa de IVA: monotributista (FCC) siempre 0; en factura A, la tasa que
+    # figure con importe > 0 en el comprobante (10,5% / 21% / 27%).
+    if tipo == 'FCC':
+        tasa = 0
+    elif tipo == 'FCA':
+        if _num(iva105) > 0:
+            tasa = 10.5
+        elif _num(iva21) > 0:
+            tasa = 21
+        elif _num(iva27) > 0:
+            tasa = 27
+        else:
+            tasa = None
+    else:
+        tasa = None
+
     if precio_num and precio_num > 0:
         precio_unitario_num = precio_num
     elif tipo == 'FCC' and kilos_num and kilos_num > 0 and subtotal_num > 0:
@@ -120,7 +136,7 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         'precio_unitario_num':     precio_unitario_num,
         'monotributista':          monotributista,
         'total_num':               total_num,
-        'tasa':                    0,
+        'tasa':                    tasa,
         'gasto':                   gasto,
         'rubro':                   rubro,
         'mes':                     mes,
