@@ -51,17 +51,14 @@ COLS = {
     'DESCRIPCION_GASTO':    27,   # AA - Descripción gasto
     'DESCRIPCION_RUBRO':    28,   # AB - Descripción rubro
     #                       29    # AC (vacío)
-    'ESTADO':               30,   # AD - Estado
-    'HORA_ESTADO':          31,   # AE - Estado (hora)
-    'ERROR_GENERAL':        32,   # AF - Error general
-    # Columnas ocultas — no tienen encabezado, solo para control de duplicados
-    'NOMBRE_ADJUNTO':       33,   # AG
-    'CLAVE_COMPROBANTE':    34,   # AH
+    # Columnas ocultas (sin encabezado visible) — solo para control de duplicados
+    'NOMBRE_ADJUNTO':       30,   # AD
+    'CLAVE_COMPROBANTE':    31,   # AE
 }
 
-NUM_COLS = 34
+NUM_COLS = 31
 
-# Encabezados visibles de la hoja FACTURAS (cols 1-32, None = columna vacía)
+# Encabezados visibles de la hoja FACTURAS (cols 1-29, None = columna vacía)
 HEADERS_FACTURAS = [
     'Tipo', 'Número Desde', 'Punto de Venta', 'Fecha',
     'Denominación', 'CUIT', 'Neto gravado', 'Iva', 'No gravado',
@@ -69,7 +66,7 @@ HEADERS_FACTURAS = [
     'Kilos', 'Precio unitario', 'Monotributista', 'Percepción Ganancias',
     'Total', 'Tasa', 'Gasto', 'Rubro', 'Mes de imputación', 'Año imputación',
     'Código de operación', 'Posición', None, 'Descripción gasto',
-    'Descripción rubro', None, 'Estado', 'Estado', 'Error general. Revisar hoja ERRORES.',
+    'Descripción rubro', None,
 ]
 
 # Listados oficiales (Matriz de Gastos / Rubros de Compras de Naiman S.A.,

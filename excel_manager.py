@@ -2,6 +2,7 @@ import re
 from datetime import datetime
 import openpyxl
 from openpyxl.styles import PatternFill, Font
+from openpyxl.utils import get_column_letter
 from config import (
     COLS, NUM_COLS, HEADERS_FACTURAS, EXCEL_FACTURAS, EXCEL_PROVEEDORES,
     GASTOS_DESC, RUBROS_DESC,
@@ -32,6 +33,13 @@ class ExcelManager:
         self._ensure('FACTURAS',   HEADERS_FACTURAS)
         self._ensure('DUPLICADAS', ['Fecha', 'Nombre adjunto', 'Clave comprobante', 'Motivo', 'Thread ID'])
         self._ensure('ERRORES',    ['Fecha hora', 'Nombre adjunto', 'Nivel', 'Mensaje'])
+
+        # Columnas de control interno (sin encabezado): necesarias para
+        # detectar duplicados, pero no hace falta verlas al abrir el archivo.
+        ws_facturas = self.wb['FACTURAS']
+        for key in ('NOMBRE_ADJUNTO', 'CLAVE_COMPROBANTE'):
+            letra = get_column_letter(COLS[key])
+            ws_facturas.column_dimensions[letra].hidden = True
 
     # ------------------------------------------------------------------
     # Setup
@@ -162,7 +170,6 @@ def cargar_indice_proveedores():
 # ------------------------------------------------------------------
 
 def _armar_fila_verificada(d):
-    ahora = datetime.now()
     fila  = [None] * NUM_COLS
     cols_verificar = []
 
@@ -196,8 +203,6 @@ def _armar_fila_verificada(d):
     set_col('POSICION',             d['posicion'])
     set_col('DESCRIPCION_GASTO',    d['descripcion_gasto'])
     set_col('DESCRIPCION_RUBRO',    d['descripcion_rubro'])
-    set_col('ESTADO',               'OK')
-    set_col('HORA_ESTADO',          ahora)
     set_col('NOMBRE_ADJUNTO',       d['nombre_adjunto'])
     set_col('CLAVE_COMPROBANTE',    d['clave'])
 
