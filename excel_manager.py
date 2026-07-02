@@ -2,7 +2,10 @@ import re
 from datetime import datetime
 import openpyxl
 from openpyxl.styles import PatternFill, Font
-from config import COLS, NUM_COLS, HEADERS_FACTURAS, EXCEL_FACTURAS, EXCEL_PROVEEDORES
+from config import (
+    COLS, NUM_COLS, HEADERS_FACTURAS, EXCEL_FACTURAS, EXCEL_PROVEEDORES,
+    GASTOS_DESC, RUBROS_DESC,
+)
 
 _FILL_ROJO   = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
 _FONT_BLANCO = Font(color='FFFFFF', bold=True)
@@ -109,9 +112,11 @@ def cargar_indice_proveedores():
     Lee 'proveedores.xlsx' (formato Proveedores_para_cruce) y devuelve:
       { cuit_sin_guiones: {gasto, desc_gasto, rubro, desc_rubro} }
 
-    Estructura del Excel:
-      Col A: CUIT  B: codgasto  C: Gastos  D: codrubro
-      Col E: idx_rubro (tabla auxiliar)  F: Descripción Rubro
+    Estructura del Excel: Col A: CUIT  B: codgasto  D: codrubro
+    (col C y las auxiliares E/F no se usan: las descripciones de Gasto y
+    Rubro salen de los listados oficiales GASTOS_DESC/RUBROS_DESC en
+    config.py, no del archivo, porque la mayoría de las filas no traían
+    ese texto cargado).
     """
     indice = {}
     if not EXCEL_PROVEEDORES.exists():
@@ -127,16 +132,6 @@ def cargar_indice_proveedores():
     ws = wb.active
     rows = list(ws.iter_rows(min_row=2, values_only=True))
 
-    # Tabla de descripciones de rubro: col E (índice 4) → col F (índice 5)
-    rubros_desc = {}
-    for row in rows:
-        if len(row) >= 6 and row[4] is not None and row[5] is not None:
-            try:
-                rubros_desc[int(row[4])] = str(row[5]).strip()
-            except (ValueError, TypeError):
-                pass
-
-    # Índice de proveedores: col A → cols B-D
     for row in rows:
         if not row[0]:
             continue
@@ -147,17 +142,15 @@ def cargar_indice_proveedores():
             gasto = int(row[1]) if row[1] is not None else None
         except (ValueError, TypeError):
             gasto = None
-        desc_gasto = str(row[2]).strip() if row[2] else None
         try:
             rubro = int(row[3]) if row[3] is not None else None
         except (ValueError, TypeError):
             rubro = None
-        desc_rubro = rubros_desc.get(rubro) if rubro is not None else None
         indice[cuit] = {
             'gasto':      gasto,
-            'desc_gasto': desc_gasto,
+            'desc_gasto': GASTOS_DESC.get(gasto),
             'rubro':      rubro,
-            'desc_rubro': desc_rubro,
+            'desc_rubro': RUBROS_DESC.get(rubro),
         }
 
     wb.close()
