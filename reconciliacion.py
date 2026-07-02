@@ -26,9 +26,10 @@ from pdf_parser import _num as _parsear_numero_flexible
 # (key, label, crítico)
 # ---------------------------------------------------------------------------
 _CAMPOS = [
-    ('tipo',                    'Tipo',               True),
-    ('punto_venta',             'Punto de Venta',     False),
+    ('tipo',                    'Tipo comprobante',   True),
+    ('punto_venta',             'Tipo (fijo)',        False),
     ('numero',                  'Número',             True),
+    ('punto_venta_factura',     'Punto de Venta',     True),
     ('fecha',                   'Fecha',              True),
     ('denominacion',            'Denominación',       True),
     ('cuit',                    'CUIT',               True),

@@ -28,6 +28,7 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
 
     numero      = _campo(texto, r'Comp\.\s*Nro:\s*0*(\d+)')
     punto_venta = PUNTO_VENTA_FIJO
+    punto_venta_factura = _campo(texto, r'Punto\s*de\s*Venta:\s*0*(\d+)')
     fecha       = _campo(texto, r'Fecha\s*de\s*Emisi[oó]n:\s*(\d{2}/\d{2}/\d{4})')
 
     denominacion_pdf = _extraer_denominacion(texto)
@@ -120,6 +121,7 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         'tipo':                    tipo   or None,
         'numero':                  numero or None,
         'punto_venta':             punto_venta,   # default '4' si no se extrae
+        'punto_venta_factura':     punto_venta_factura or None,  # el que trae la factura
         'fecha':                   fecha  or None,
         'denominacion':            denominacion or None,
         'cuit':                    cuit   or None,

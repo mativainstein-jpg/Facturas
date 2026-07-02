@@ -15,8 +15,9 @@ from excel_manager import cargar_indice_proveedores
 
 _CAMPOS = [
     ('tipo',                'Tipo comprobante'),
-    ('punto_venta',         'Punto de venta'),
+    ('punto_venta',         'Tipo (fijo)'),
     ('numero',              'Número'),
+    ('punto_venta_factura', 'Punto de Venta (factura)'),
     ('fecha',               'Fecha'),
     ('denominacion',        'Denominación'),
     ('cuit',                'CUIT'),
@@ -39,8 +40,8 @@ _CAMPOS = [
 
 # Campos críticos que se marcan con ⚠ si están vacíos
 _CRITICOS = {
-    'tipo', 'denominacion', 'cuit', 'fecha', 'neto_num', 'iva_num',
-    'kilos_num', 'precio_unitario_num', 'total_num', 'gasto', 'rubro',
+    'tipo', 'punto_venta_factura', 'denominacion', 'cuit', 'fecha', 'neto_num',
+    'iva_num', 'kilos_num', 'precio_unitario_num', 'total_num', 'gasto', 'rubro',
 }
 
 

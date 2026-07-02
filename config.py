@@ -22,45 +22,46 @@ GMAIL_SCOPES = ['https://www.googleapis.com/auth/gmail.modify']
 
 # Columnas del Excel (1-indexed), coinciden con Registro_de_facturas.xlsx
 COLS = {
-    'TIPO_COMPROBANTE':      1,   # A  - Tipo
-    'NUMERO':                2,   # B  - Número Desde
-    'PUNTO_VENTA':           3,   # C  - Punto de Venta
-    'FECHA':                 4,   # D  - Fecha
-    'DENOMINACION':          5,   # E  - Denominación
-    'CUIT':                  6,   # F  - CUIT
-    'NETO':                  7,   # G  - Neto gravado
-    'IVA':                   8,   # H  - Iva
-    'NO_GRAVADO':            9,   # I  - No gravado
-    'IMP_INTERNOS':         10,   # J  - Imp. Internos
-    'EXENTOS':              11,   # K  - Exentos
-    'PERCEPCION_IVA':       12,   # L  - Percepción IVA
-    'PERCEPCION_IIBB':      13,   # M  - Percepción IIBB
-    'KILOS':                14,   # N  - Kilos
-    'PRECIO_UNITARIO':      15,   # O  - Precio unitario
-    'MONOTRIBUTISTA':       16,   # P  - Monotributista
-    'PERCEPCION_GANANCIAS': 17,   # Q  - Percepción Ganancias
-    'TOTAL':                18,   # R  - Total
-    'TASA':                 19,   # S  - Tasa
-    'GASTO':                20,   # T  - Gasto
-    'RUBRO':                21,   # U  - Rubro
-    'MES_IMPUTACION':       22,   # V  - Mes de imputación
-    'ANIO_IMPUTACION':      23,   # W  - Año imputación
-    'CODIGO_OPERACION':     24,   # X  - Código de operación
-    'POSICION':             25,   # Y  - Posición
-    #                       26    # Z  (vacío)
-    'DESCRIPCION_GASTO':    27,   # AA - Descripción gasto
-    'DESCRIPCION_RUBRO':    28,   # AB - Descripción rubro
-    #                       29    # AC (vacío)
+    'TIPO_COMPROBANTE':      1,   # A  - Tipo comprobante (FCA/FCC)
+    'PUNTO_VENTA':           2,   # B  - Tipo (valor fijo, hoy siempre "4")
+    'NUMERO':                3,   # C  - Número Desde
+    'PUNTO_VENTA_FACTURA':   4,   # D  - Punto de Venta (el que trae la factura)
+    'FECHA':                 5,   # E  - Fecha
+    'DENOMINACION':          6,   # F  - Denominación
+    'CUIT':                  7,   # G  - CUIT
+    'NETO':                  8,   # H  - Neto gravado
+    'IVA':                   9,   # I  - Iva
+    'NO_GRAVADO':           10,   # J  - No gravado
+    'IMP_INTERNOS':         11,   # K  - Imp. Internos
+    'EXENTOS':              12,   # L  - Exentos
+    'PERCEPCION_IVA':       13,   # M  - Percepción IVA
+    'PERCEPCION_IIBB':      14,   # N  - Percepción IIBB
+    'KILOS':                15,   # O  - Kilos
+    'PRECIO_UNITARIO':      16,   # P  - Precio unitario
+    'MONOTRIBUTISTA':       17,   # Q  - Monotributista
+    'PERCEPCION_GANANCIAS': 18,   # R  - Percepción Ganancias
+    'TOTAL':                19,   # S  - Total
+    'TASA':                 20,   # T  - Tasa
+    'GASTO':                21,   # U  - Gasto
+    'RUBRO':                22,   # V  - Rubro
+    'MES_IMPUTACION':       23,   # W  - Mes de imputación
+    'ANIO_IMPUTACION':      24,   # X  - Año imputación
+    'CODIGO_OPERACION':     25,   # Y  - Código de operación
+    'POSICION':             26,   # Z  - Posición
+    #                       27    # AA (vacío)
+    'DESCRIPCION_GASTO':    28,   # AB - Descripción gasto
+    'DESCRIPCION_RUBRO':    29,   # AC - Descripción rubro
+    #                       30    # AD (vacío)
     # Columnas ocultas (sin encabezado visible) — solo para control de duplicados
-    'NOMBRE_ADJUNTO':       30,   # AD
-    'CLAVE_COMPROBANTE':    31,   # AE
+    'NOMBRE_ADJUNTO':       31,   # AE
+    'CLAVE_COMPROBANTE':    32,   # AF
 }
 
-NUM_COLS = 31
+NUM_COLS = 32
 
-# Encabezados visibles de la hoja FACTURAS (cols 1-29, None = columna vacía)
+# Encabezados visibles de la hoja FACTURAS (cols 1-30, None = columna vacía)
 HEADERS_FACTURAS = [
-    'Tipo', 'Número Desde', 'Punto de Venta', 'Fecha',
+    'Tipo comprobante', 'Tipo', 'Número Desde', 'Punto de Venta', 'Fecha',
     'Denominación', 'CUIT', 'Neto gravado', 'Iva', 'No gravado',
     'Imp. Internos', 'Exentos', 'Percepción IVA', 'Percepción IIBB',
     'Kilos', 'Precio unitario', 'Monotributista', 'Percepción Ganancias',

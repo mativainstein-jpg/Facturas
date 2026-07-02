@@ -177,8 +177,9 @@ def _armar_fila_verificada(d):
         fila[COLS[key] - 1] = valor
 
     set_col('TIPO_COMPROBANTE',     d['tipo'])
-    set_col('NUMERO',               d['numero'])
     set_col('PUNTO_VENTA',          d['punto_venta'])
+    set_col('NUMERO',               d['numero'])
+    set_col('PUNTO_VENTA_FACTURA',  d.get('punto_venta_factura'))
     set_col('FECHA',                d['fecha'])
     set_col('DENOMINACION',         d['denominacion'])
     set_col('CUIT',                 d['cuit'])
@@ -212,11 +213,12 @@ def _armar_fila_verificada(d):
             fila[COLS[key] - 1] = 'VERIFICAR'
             cols_verificar.append(COLS[key])
 
-    verificar('TIPO_COMPROBANTE', d['tipo'])
-    verificar('NUMERO',           d['numero'])
-    verificar('FECHA',            d['fecha'])
-    verificar('DENOMINACION',     d['denominacion'])
-    verificar('CUIT',             d['cuit'])
+    verificar('TIPO_COMPROBANTE',    d['tipo'])
+    verificar('NUMERO',              d['numero'])
+    verificar('PUNTO_VENTA_FACTURA', d.get('punto_venta_factura'))
+    verificar('FECHA',               d['fecha'])
+    verificar('DENOMINACION',        d['denominacion'])
+    verificar('CUIT',                d['cuit'])
 
     if d['kilos_num'] is None or d['kilos_num'] <= 0:
         fila[COLS['KILOS'] - 1] = 'VERIFICAR'
