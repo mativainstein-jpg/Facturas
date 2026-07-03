@@ -36,6 +36,18 @@ def _git(*args, timeout=30):
         return False, str(e)
 
 
+def _version_actual():
+    """'DD/MM/AAAA;HH:MM' del último commit aplicado, o None si no se pudo saber."""
+    ok, salida = _git('log', '-1', '--format=%cd', '--date=format:%d/%m/%Y;%H:%M', timeout=10)
+    return salida.strip() if ok and salida else None
+
+
+def _mostrar_version():
+    version = _version_actual()
+    if version:
+        print(f'  Version (fecha;hora): {version}')
+
+
 def main():
     # ¿git disponible?
     ok, _ = _git('--version', timeout=10)
@@ -60,6 +72,7 @@ def main():
     ok, _ = _git('fetch', '--quiet', timeout=30)
     if not ok:
         print('  [i] Sin internet o sin acceso: se usa la version que ya tenes.')
+        _mostrar_version()
         return
 
     # Aplicar la última versión sin riesgo de conflictos.
@@ -70,6 +83,7 @@ def main():
         print('  Version actualizada a la ultima.')
     else:
         print('  [i] No pude actualizar: se usa la version que ya tenes.')
+    _mostrar_version()
 
 
 if __name__ == '__main__':

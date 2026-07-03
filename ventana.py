@@ -17,10 +17,28 @@ from procesador import (
 from reconciliacion import ReconciliacionDialog
 
 
+def _version_app():
+    """'DD/MM/AAAA HH:MM' del último commit aplicado, o '' si no se pudo saber
+    (sin Git, o no instalada desde un repo)."""
+    try:
+        r = subprocess.run(
+            ['git', 'log', '-1', '--format=%cd', '--date=format:%d/%m/%Y %H:%M'],
+            cwd=str(Path(__file__).resolve().parent),
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.stdout.strip() if r.returncode == 0 else ''
+    except Exception:
+        return ''
+
+
 class VentanaFacturas(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle('Procesador de Facturas')
+        titulo = 'Procesador de Facturas'
+        version = _version_app()
+        if version:
+            titulo += f' — versión {version}'
+        self.setWindowTitle(titulo)
         self.setGeometry(100, 100, 660, 560)
         self.worker = None
         self._procesando = False
