@@ -27,6 +27,7 @@ _CAMPOS = [
     ('kilos_num',           'Kilos / Cantidad'),
     ('precio_unitario_num', 'Precio unitario'),
     ('total_num',           'Total'),
+    ('tasa',                'Tasa IVA'),
     ('monotributista',      'Monotributista'),
     ('posicion',            'Posición'),
     ('mes',                 'Mes'),

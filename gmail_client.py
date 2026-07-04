@@ -10,20 +10,26 @@ def autenticar():
     creds = None
 
     if TOKEN_FILE.exists():
-        creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), GMAIL_SCOPES)
+        try:
+            creds = Credentials.from_authorized_user_file(str(TOKEN_FILE), GMAIL_SCOPES)
+        except Exception:
+            creds = None   # token.json corrupto → se pide autorización de nuevo
+
+    if creds and not creds.valid and creds.expired and creds.refresh_token:
+        try:
+            creds.refresh(Request())
+            TOKEN_FILE.write_text(creds.to_json())
+        except Exception:
+            creds = None   # refresh rechazado (permiso revocado/vencido)
 
     if not creds or not creds.valid:
-        if creds and creds.expired and creds.refresh_token:
-            creds.refresh(Request())
-        else:
-            if not CREDENTIALS_FILE.exists():
-                raise FileNotFoundError(
-                    f'No se encontró credentials.json en {CREDENTIALS_FILE.parent}.\n'
-                    'Seguí las instrucciones en SETUP.md para obtenerlo.'
-                )
-            flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), GMAIL_SCOPES)
-            creds = flow.run_local_server(port=0)
-
+        if not CREDENTIALS_FILE.exists():
+            raise FileNotFoundError(
+                f'No se encontró credentials.json en {CREDENTIALS_FILE.parent}.\n'
+                'Seguí las instrucciones en SETUP.md para obtenerlo.'
+            )
+        flow = InstalledAppFlow.from_client_secrets_file(str(CREDENTIALS_FILE), GMAIL_SCOPES)
+        creds = flow.run_local_server(port=0)
         TOKEN_FILE.write_text(creds.to_json())
 
     return build('gmail', 'v1', credentials=creds)

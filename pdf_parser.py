@@ -29,6 +29,12 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     numero      = _campo(texto, r'Comp\.\s*Nro:\s*0*(\d+)')
     punto_venta = PUNTO_VENTA_FIJO
     punto_venta_factura = _campo(texto, r'Punto\s*de\s*Venta:\s*0*(\d+)')
+    if not punto_venta_factura:
+        # Fallback: los PDF descargados de AFIP/ARCA se llaman
+        # cuit_tipo_puntoventa_numero.pdf (ej. 20301648732_001_00003_00000096.pdf)
+        m = re.search(r'\d{11}_\d{3}_0*(\d+)_\d{8}', nombre_adjunto or '')
+        if m:
+            punto_venta_factura = m.group(1)
     fecha       = _campo(texto, r'Fecha\s*de\s*Emisi[oó]n:\s*(\d{2}/\d{2}/\d{4})')
 
     denominacion_pdf = _extraer_denominacion(texto)
@@ -38,6 +44,9 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     neto     = _campo(texto, r'Importe\s*Neto\s*Gravado:\s*\$?\s*([\d.,]+)')
     subtotal = _campo(texto, r'Subtotal:\s*\$?\s*([\d.,]+)') or _subtotal_linea(linea)
 
+    # Las 5 alícuotas de IVA que puede traer una factura A
+    iva25  = _campo(texto, r'IVA\s*2[.,]5%\s*(?::)?\s*\$?\s*([\d.,]+)')
+    iva5   = _campo(texto, r'IVA\s*5%\s*(?::)?\s*\$?\s*([\d.,]+)')
     iva105 = _campo(texto, r'IVA\s*10[.,]5%\s*(?::)?\s*\$?\s*([\d.,]+)')
     iva21  = _campo(texto, r'IVA\s*21%\s*(?::)?\s*\$?\s*([\d.,]+)')
     iva27  = _campo(texto, r'IVA\s*27%\s*(?::)?\s*\$?\s*([\d.,]+)')
@@ -63,23 +72,20 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     kilos_num    = _num_o_none(kilos)
     neto_num     = _num_o_none(neto) if tipo == 'FCA' else 0.0
     subtotal_num = _num(subtotal)
-    iva_num      = (_num(iva105) + _num(iva21) + _num(iva27)) or (None if tipo == 'FCA' else 0.0)
+    ivas = [(2.5, _num(iva25)), (5, _num(iva5)), (10.5, _num(iva105)),
+            (21, _num(iva21)), (27, _num(iva27))]
+    iva_num      = sum(monto for _, monto in ivas) or (None if tipo == 'FCA' else 0.0)
     total_num    = _num_o_none(total)
     precio_num   = _num(precio_raw)
 
-    # Tasa de IVA: monotributista (FCC) siempre 0; en factura A, la tasa que
-    # figure con importe > 0 en el comprobante (10,5% / 21% / 27%).
+    # Tasa de IVA: monotributista (FCC) siempre 0; en factura A, la única
+    # alícuota con importe > 0. Si hay varias (factura mixta) o ninguna,
+    # queda None → VERIFICAR, en vez de elegir una en silencio.
     if tipo == 'FCC':
         tasa = 0
     elif tipo == 'FCA':
-        if _num(iva105) > 0:
-            tasa = 10.5
-        elif _num(iva21) > 0:
-            tasa = 21
-        elif _num(iva27) > 0:
-            tasa = 27
-        else:
-            tasa = None
+        con_importe = [alicuota for alicuota, monto in ivas if monto > 0]
+        tasa = con_importe[0] if len(con_importe) == 1 else None
     else:
         tasa = None
 
@@ -110,10 +116,13 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     posicion       = 'RM' if tipo == 'FCC' else ('RI' if tipo == 'FCA' else '')
     monotributista = 'SI' if tipo == 'FCC' else ''
 
+    # El punto de venta REAL distingue facturas de un mismo proveedor con
+    # igual número pero distinto PV (con el fijo se marcaban como duplicadas
+    # y la segunda no se cargaba).
     clave = '|'.join([
         tipo or 'SIN_TIPO',
         cuit or 'SIN_CUIT',
-        punto_venta or 'SIN_PV',
+        punto_venta_factura or punto_venta or 'SIN_PV',
         numero or 'SIN_NUMERO',
     ])
 

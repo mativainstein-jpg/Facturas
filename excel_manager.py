@@ -176,10 +176,15 @@ def _armar_fila_verificada(d):
     def set_col(key, valor):
         fila[COLS[key] - 1] = valor
 
+    def _entero(v):
+        # '110' → 110 para que Excel lo trate como número (sin el aviso
+        # verde de "número guardado como texto" al copiar/pegar).
+        return int(v) if isinstance(v, str) and v.isdigit() else v
+
     set_col('TIPO_COMPROBANTE',     d['tipo'])
-    set_col('PUNTO_VENTA',          d['punto_venta'])
-    set_col('NUMERO',               d['numero'])
-    set_col('PUNTO_VENTA_FACTURA',  d.get('punto_venta_factura'))
+    set_col('PUNTO_VENTA',          _entero(d['punto_venta']))
+    set_col('NUMERO',               _entero(d['numero']))
+    set_col('PUNTO_VENTA_FACTURA',  _entero(d.get('punto_venta_factura')))
     set_col('FECHA',                d['fecha'])
     set_col('DENOMINACION',         d['denominacion'])
     set_col('CUIT',                 d['cuit'])

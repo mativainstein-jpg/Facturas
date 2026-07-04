@@ -202,9 +202,9 @@ class ProcesadorLocalWorker(QThread):
                 if not es_texto_valido(texto):
                     entry['error'] = 'Texto PDF insuficiente o tipo no reconocido'
                 else:
-                    dados = parsear_factura(texto, ruta.name, indice_proveedores, pdf_bytes=pdf_bytes)
-                    entry['datos']      = dados
-                    entry['dup_clave']  = dados['clave'] in indice_duplicados['claves']
+                    datos = parsear_factura(texto, ruta.name, indice_proveedores, pdf_bytes=pdf_bytes)
+                    entry['datos']      = datos
+                    entry['dup_clave']  = datos['clave'] in indice_duplicados['claves']
                     entry['dup_nombre'] = ruta.name in indice_duplicados['nombres']
             except Exception as e:
                 entry['error'] = str(e)
