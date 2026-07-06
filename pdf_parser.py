@@ -430,10 +430,14 @@ def _limpiar_texto(texto):
     if not texto:
         return ''
     texto = re.sub(r'\s+', ' ', str(texto))
-    # Cortar en cualquier campo AFIP que aparezca pegado al nombre
-    texto = re.sub(r'\s*Fecha\s*de\s*Emisi[oó]n.*', '', texto, flags=re.I)
-    texto = re.sub(r'\s*CUIT.*',                     '', texto, flags=re.I)
-    texto = re.sub(r'\s*Condici[oó]n.*',             '', texto, flags=re.I)
-    texto = re.sub(r'\s*Domicilio.*',                '', texto, flags=re.I)
-    texto = re.sub(r'\s*Punto\s*de\s*Venta.*',       '', texto, flags=re.I)
-    return texto.strip()
+    # Cortar en cualquier campo AFIP que aparezca pegado al nombre. Se busca
+    # por tokens SIN acento ("Fecha", "Condici") en vez de "Emisión"/"Condición",
+    # para que el corte funcione aunque el acento venga codificado distinto
+    # (tilde combinada) — que es lo que dejaba "Fecha de Emisión" en el nombre.
+    texto = re.sub(r'\s*Fecha\b.*',            '', texto, flags=re.I)
+    texto = re.sub(r'\s*CUIT.*',               '', texto, flags=re.I)
+    texto = re.sub(r'\s*Condici.*',            '', texto, flags=re.I)
+    texto = re.sub(r'\s*Domicilio.*',          '', texto, flags=re.I)
+    texto = re.sub(r'\s*Punto\s*de\s*Venta.*', '', texto, flags=re.I)
+    texto = re.sub(r'\s*Ingresos\s*Brutos.*',  '', texto, flags=re.I)
+    return texto.strip(' .,-')
