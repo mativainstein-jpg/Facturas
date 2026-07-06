@@ -114,7 +114,9 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     desc_rubro = prov['desc_rubro'] if prov else None
 
     posicion       = 'RM' if tipo == 'FCC' else ('RI' if tipo == 'FCA' else '')
-    monotributista = 'SI' if tipo == 'FCC' else ''
+    # En factura C (monotributista) no se discrimina IVA: en esta columna va
+    # el importe total. En factura A queda vacía.
+    monotributista = total_num if tipo == 'FCC' else None
 
     # El punto de venta REAL distingue facturas de un mismo proveedor con
     # igual número pero distinto PV (con el fijo se marcaban como duplicadas

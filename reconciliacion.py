@@ -56,7 +56,9 @@ _CAMPOS = [
     ('descripcion_rubro',       'Descripción rubro',  False),
 ]
 
-_NUM_KEYS = {k for k, *_ in _CAMPOS if k.endswith('_num')}
+# 'monotributista' ya no es 'SI'/'' sino un importe (el total en facturas C),
+# así que se muestra y relee como número igual que los campos *_num.
+_NUM_KEYS = {k for k, *_ in _CAMPOS if k.endswith('_num')} | {'monotributista'}
 _INT_KEYS = {'mes', 'anio', 'gasto', 'rubro'}
 
 # Campos que siempre son VERIFICAR si están vacíos
