@@ -5,7 +5,7 @@ from openpyxl.styles import PatternFill, Font
 from openpyxl.utils import get_column_letter
 from config import (
     COLS, NUM_COLS, HEADERS_FACTURAS, EXCEL_FACTURAS, EXCEL_PROVEEDORES,
-    EXCEL_NOMBRES, GASTOS_DESC, RUBROS_DESC,
+    EXCEL_NOMBRES, EXCEL_LOCALES, GASTOS_DESC, RUBROS_DESC,
 )
 
 _FILL_ROJO   = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
@@ -140,6 +140,12 @@ def cargar_indice_nombres():
             indice[cuit] = str(row[1]).strip()
 
     wb.close()
+
+    # Sumar (o corregir) con lo que agregó el administrativo en esta PC
+    for p in _leer_proveedores_locales():
+        if p['cuit'] and p['nombre']:
+            indice[p['cuit']] = p['nombre']
+
     return indice
 
 
@@ -194,7 +200,107 @@ def cargar_indice_proveedores():
         }
 
     wb.close()
+
+    # Sumar (o corregir) con lo que agregó el administrativo en esta PC
+    for p in _leer_proveedores_locales():
+        if not p['cuit'] or (p['gasto'] is None and p['rubro'] is None):
+            continue
+        indice[p['cuit']] = {
+            'gasto':      p['gasto'],
+            'desc_gasto': GASTOS_DESC.get(p['gasto']),
+            'rubro':      p['rubro'],
+            'desc_rubro': RUBROS_DESC.get(p['rubro']),
+        }
+
     return indice
+
+
+# ------------------------------------------------------------------
+# Proveedores agregados localmente por el administrativo (no versionado)
+# ------------------------------------------------------------------
+
+# Columnas de la hoja de carga del archivo local
+_LOCALES_HOJA = 'AGREGAR PROVEEDORES'
+_LOCALES_HEADERS = ['CUIT', 'Nombre', 'Cod. Gasto', 'Cod. Rubro']
+
+
+def _leer_proveedores_locales():
+    """
+    Lee 'proveedores_locales.xlsx' (lo que carga el administrativo en esta PC)
+    y devuelve una lista de {cuit, nombre, gasto, rubro}. Filas incompletas se
+    toleran (ej. solo CUIT+nombre, o solo CUIT+gasto+rubro).
+    """
+    if not EXCEL_LOCALES.exists():
+        return []
+
+    try:
+        wb = openpyxl.load_workbook(str(EXCEL_LOCALES), read_only=True, data_only=True)
+    except PermissionError:
+        raise PermissionError(
+            f'No se puede leer "{EXCEL_LOCALES.name}" porque está abierto '
+            'en Excel. Cerralo e intentá de nuevo.'
+        )
+    except Exception:
+        return []   # archivo dañado → se ignora, no frena el procesamiento
+
+    ws = wb[_LOCALES_HOJA] if _LOCALES_HOJA in wb.sheetnames else wb.active
+    filas = []
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or not row[0]:
+            continue
+        cuit = re.sub(r'\D', '', str(row[0]))
+        if not cuit:
+            continue
+        nombre = str(row[1]).strip() if len(row) > 1 and row[1] else None
+
+        def _int(v):
+            try:
+                return int(v) if v is not None and str(v).strip() != '' else None
+            except (ValueError, TypeError):
+                return None
+
+        gasto = _int(row[2]) if len(row) > 2 else None
+        rubro = _int(row[3]) if len(row) > 3 else None
+        filas.append({'cuit': cuit, 'nombre': nombre, 'gasto': gasto, 'rubro': rubro})
+
+    wb.close()
+    return filas
+
+
+def crear_archivo_locales_si_falta():
+    """
+    Crea 'proveedores_locales.xlsx' con la hoja de carga y dos hojas de
+    referencia (códigos de Gasto y de Rubro) si todavía no existe. Así el
+    administrativo tiene el formato listo y puede consultar los códigos.
+    """
+    if EXCEL_LOCALES.exists():
+        return
+    try:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = _LOCALES_HOJA
+        ws.append(_LOCALES_HEADERS)
+        ws.append(['Ejemplo: 20-12345678-9', 'PROVEEDOR EJEMPLO SA', 4, 6])
+        for col, ancho in (('A', 22), ('B', 40), ('C', 12), ('D', 12)):
+            ws.column_dimensions[col].width = ancho
+
+        hg = wb.create_sheet('Codigos de GASTO')
+        hg.append(['Código', 'Gasto'])
+        for cod in sorted(GASTOS_DESC):
+            hg.append([cod, GASTOS_DESC[cod]])
+        hg.column_dimensions['A'].width = 10
+        hg.column_dimensions['B'].width = 30
+
+        hr = wb.create_sheet('Codigos de RUBRO')
+        hr.append(['Código', 'Rubro'])
+        for cod in sorted(RUBROS_DESC):
+            hr.append([cod, RUBROS_DESC[cod]])
+        hr.column_dimensions['A'].width = 10
+        hr.column_dimensions['B'].width = 30
+
+        wb.save(str(EXCEL_LOCALES))
+    except Exception:
+        pass   # si no se puede crear, la app sigue funcionando igual
 
 
 # ------------------------------------------------------------------

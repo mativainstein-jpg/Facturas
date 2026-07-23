@@ -1,5 +1,6 @@
 # Datos propios de cada instalacion (NO se versionan)
 facturas.xlsx
+proveedores_locales.xlsx
 credentials.json
 token.json
 estado.json

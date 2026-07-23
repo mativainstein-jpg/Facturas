@@ -15,6 +15,9 @@ LABEL_PROCESADO = 'Procesado'
 EXCEL_FACTURAS   = BASE_DIR / 'facturas.xlsx'
 EXCEL_PROVEEDORES = BASE_DIR / 'proveedores.xlsx'
 EXCEL_NOMBRES    = BASE_DIR / 'cuit_nombre.xlsx'   # cruce CUIT -> denominación
+# Proveedores que agrega el administrativo en ESTA PC. NO se versiona
+# (la actualización no lo pisa) y se suma por encima de los maestros.
+EXCEL_LOCALES    = BASE_DIR / 'proveedores_locales.xlsx'
 JSON_ESTADO      = BASE_DIR / 'estado.json'
 CREDENTIALS_FILE = BASE_DIR / 'credentials.json'
 TOKEN_FILE       = BASE_DIR / 'token.json'

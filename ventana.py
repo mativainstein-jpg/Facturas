@@ -10,10 +10,11 @@ from PyQt5.QtWidgets import (
     QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
 
-from config import EXCEL_FACTURAS
+from config import EXCEL_FACTURAS, EXCEL_LOCALES
 from procesador import (
     ProcesadorGmailWorker, ProcesadorLocalWorker, escribir_resultados_en_excel,
 )
+from excel_manager import crear_archivo_locales_si_falta
 from reconciliacion import ReconciliacionDialog
 
 
@@ -42,6 +43,7 @@ class VentanaFacturas(QMainWindow):
         self.setGeometry(100, 100, 660, 560)
         self.worker = None
         self._procesando = False
+        crear_archivo_locales_si_falta()   # deja listo el Excel de proveedores locales
         self._init_ui()
         self._log('Listo para trabajar. Empezá con "Insertar Factura".')
 
@@ -107,6 +109,16 @@ class VentanaFacturas(QMainWindow):
         self.btn_excel.setFont(QFont('Arial', 10))
         self.btn_excel.clicked.connect(self._abrir_excel)
         botones.addWidget(self.btn_excel)
+
+        self.btn_proveedores = QPushButton('➕  Agregar proveedores')
+        self.btn_proveedores.setMinimumHeight(38)
+        self.btn_proveedores.setFont(QFont('Arial', 10))
+        self.btn_proveedores.setToolTip(
+            'Abre el Excel donde podés cargar proveedores nuevos (CUIT, nombre, '
+            'código de gasto y de rubro). Se usan en esta PC al procesar.'
+        )
+        self.btn_proveedores.clicked.connect(self._abrir_proveedores)
+        botones.addWidget(self.btn_proveedores)
 
         btn_salir = QPushButton('Salir')
         btn_salir.setMinimumHeight(38)
@@ -286,16 +298,7 @@ class VentanaFacturas(QMainWindow):
             f'{mensaje}\n\nCuando lo soluciones, volvé a intentarlo.'
         )
 
-    def _abrir_excel(self):
-        if not EXCEL_FACTURAS.exists():
-            QMessageBox.information(
-                self, 'Todavía no hay Excel',
-                'Todavía no se cargó ninguna factura, así que el Excel no existe.\n\n'
-                'Cargá facturas primero con "Insertar Factura".'
-            )
-            return
-
-        path = str(EXCEL_FACTURAS)
+    def _abrir_archivo(self, path):
         try:
             if sys.platform == 'win32':
                 os.startfile(path)
@@ -305,10 +308,34 @@ class VentanaFacturas(QMainWindow):
                 subprocess.run(['xdg-open', path])
         except Exception:
             QMessageBox.information(
-                self, 'Abrí el Excel a mano',
-                'No pude abrir el Excel automáticamente.\n\n'
+                self, 'Abrilo a mano',
+                'No pude abrir el archivo automáticamente.\n\n'
                 f'Está guardado en:\n{path}'
             )
+
+    def _abrir_excel(self):
+        if not EXCEL_FACTURAS.exists():
+            QMessageBox.information(
+                self, 'Todavía no hay Excel',
+                'Todavía no se cargó ninguna factura, así que el Excel no existe.\n\n'
+                'Cargá facturas primero con "Insertar Factura".'
+            )
+            return
+        self._abrir_archivo(str(EXCEL_FACTURAS))
+
+    def _abrir_proveedores(self):
+        crear_archivo_locales_si_falta()
+        QMessageBox.information(
+            self, 'Agregar proveedores',
+            'Se va a abrir el Excel de proveedores de esta PC.\n\n'
+            'Cargá una fila por proveedor nuevo: CUIT, Nombre, Código de Gasto y '
+            'Código de Rubro. Los códigos podés consultarlos en las pestañas '
+            '"Codigos de GASTO" y "Codigos de RUBRO" del mismo archivo.\n\n'
+            'Guardá y cerrá el Excel. Los proveedores nuevos se usan la próxima '
+            'vez que proceses facturas. (Estos cambios quedan en esta PC y no se '
+            'pierden con las actualizaciones.)'
+        )
+        self._abrir_archivo(str(EXCEL_LOCALES))
 
     def closeEvent(self, event):
         # Evitar que cierre a mitad de un proceso y deje el Excel a medias
