@@ -5,7 +5,7 @@ from openpyxl.styles import PatternFill, Font
 from openpyxl.utils import get_column_letter
 from config import (
     COLS, NUM_COLS, HEADERS_FACTURAS, EXCEL_FACTURAS, EXCEL_PROVEEDORES,
-    GASTOS_DESC, RUBROS_DESC,
+    EXCEL_NOMBRES, GASTOS_DESC, RUBROS_DESC,
 )
 
 _FILL_ROJO   = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
@@ -109,6 +109,38 @@ class ExcelManager:
 
     def cerrar(self):
         self.wb.close()
+
+
+# ------------------------------------------------------------------
+# Cruce CUIT -> denominación (cuit_nombre.xlsx)
+# ------------------------------------------------------------------
+
+def cargar_indice_nombres():
+    """
+    Lee 'cuit_nombre.xlsx' y devuelve { cuit_sin_guiones: nombre }.
+    Estructura: Col A: CUIT (con o sin guiones)  Col B: nombre.
+    """
+    indice = {}
+    if not EXCEL_NOMBRES.exists():
+        return indice
+
+    try:
+        wb = openpyxl.load_workbook(str(EXCEL_NOMBRES), read_only=True)
+    except PermissionError:
+        raise PermissionError(
+            f'No se puede leer "{EXCEL_NOMBRES.name}" porque está abierto '
+            'en Excel (u otro programa). Cerralo e intentá de nuevo.'
+        )
+    ws = wb.active
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        if not row or not row[0] or len(row) < 2 or not row[1]:
+            continue
+        cuit = re.sub(r'\D', '', str(row[0]))
+        if cuit:
+            indice[cuit] = str(row[1]).strip()
+
+    wb.close()
+    return indice
 
 
 # ------------------------------------------------------------------
@@ -222,8 +254,15 @@ def _armar_fila_verificada(d):
     verificar('NUMERO',              d['numero'])
     verificar('PUNTO_VENTA_FACTURA', d.get('punto_venta_factura'))
     verificar('FECHA',               d['fecha'])
-    verificar('DENOMINACION',        d['denominacion'])
     verificar('CUIT',                d['cuit'])
+
+    # Denominación: si vino del cruce CUIT->nombre, queda normal. Si no
+    # (se usó el nombre de la factura), se marca en rojo PERO se conserva
+    # el nombre leído — salvo que no haya nombre, ahí va 'VERIFICAR'.
+    if not d.get('denominacion_cruzada'):
+        if not d['denominacion']:
+            fila[COLS['DENOMINACION'] - 1] = 'VERIFICAR'
+        cols_verificar.append(COLS['DENOMINACION'])
 
     if d['kilos_num'] is None or d['kilos_num'] <= 0:
         fila[COLS['KILOS'] - 1] = 'VERIFICAR'

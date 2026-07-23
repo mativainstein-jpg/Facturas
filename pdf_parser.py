@@ -22,7 +22,8 @@ def es_texto_valido(texto):
 # Parser principal
 # ---------------------------------------------------------------------------
 
-def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=None):
+def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=None,
+                    indice_nombres=None):
     tipo = _detectar_tipo(texto)
     linea = _extraer_linea_producto(texto, pdf_bytes)
 
@@ -39,7 +40,8 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
 
     denominacion_pdf = _extraer_denominacion(texto)
     cuit             = _extraer_cuit_emisor(texto)
-    denominacion     = _resolver_denominacion(cuit, denominacion_pdf, indice_proveedores)
+    denominacion, denominacion_cruzada = _resolver_denominacion(
+        cuit, denominacion_pdf, indice_nombres)
 
     neto     = _campo(texto, r'Importe\s*Neto\s*Gravado:\s*\$?\s*([\d.,]+)')
     subtotal = _campo(texto, r'Subtotal:\s*\$?\s*([\d.,]+)') or _subtotal_linea(linea)
@@ -135,6 +137,7 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         'punto_venta_factura':     punto_venta_factura or None,  # el que trae la factura
         'fecha':                   fecha  or None,
         'denominacion':            denominacion or None,
+        'denominacion_cruzada':    denominacion_cruzada,  # True si vino del cruce CUIT->nombre
         'cuit':                    cuit   or None,
         'neto_num':                neto_num,
         'iva_num':                 iva_num,
@@ -384,9 +387,20 @@ def _extraer_cuit_emisor(texto):
     return ''
 
 
-def _resolver_denominacion(cuit, denominacion_pdf, indice):
-    # El índice de proveedores ya no contiene denominación → usar siempre el PDF
-    return denominacion_pdf or ''
+def _resolver_denominacion(cuit, denominacion_pdf, indice_nombres):
+    """
+    Devuelve (nombre, cruzada):
+      - Primero cruza el CUIT contra cuit_nombre.xlsx. Si lo encuentra,
+        usa ESE nombre (cruzada=True).
+      - Si no está en el cruce, usa el nombre leído de la factura
+        (cruzada=False → se marca en rojo en el Excel).
+    """
+    if indice_nombres and cuit:
+        cuit_num = re.sub(r'\D', '', cuit)
+        nombre = indice_nombres.get(cuit_num)
+        if nombre:
+            return nombre, True
+    return (denominacion_pdf or ''), False
 
 
 def _campo(texto, patron):

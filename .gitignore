@@ -5,8 +5,9 @@ token.json
 estado.json
 error.log
 
-# proveedores.xlsx SI va en git (configuracion compartida)
+# Tablas de configuracion compartida (SI van en git, se actualizan solas)
 !proveedores.xlsx
+!cuit_nombre.xlsx
 
 # Python / build
 __pycache__/

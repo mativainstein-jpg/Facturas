@@ -14,6 +14,7 @@ LABEL_PROCESADO = 'Procesado'
 
 EXCEL_FACTURAS   = BASE_DIR / 'facturas.xlsx'
 EXCEL_PROVEEDORES = BASE_DIR / 'proveedores.xlsx'
+EXCEL_NOMBRES    = BASE_DIR / 'cuit_nombre.xlsx'   # cruce CUIT -> denominación
 JSON_ESTADO      = BASE_DIR / 'estado.json'
 CREDENTIALS_FILE = BASE_DIR / 'credentials.json'
 TOKEN_FILE       = BASE_DIR / 'token.json'

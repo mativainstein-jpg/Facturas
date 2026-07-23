@@ -2,7 +2,7 @@ import json
 from PyQt5.QtCore import QThread, pyqtSignal
 from gmail_client import autenticar, buscar_pdfs_gmail, descargar_adjunto, aplicar_label
 from pdf_parser import extraer_texto, es_texto_valido, parsear_factura
-from excel_manager import ExcelManager, cargar_indice_proveedores
+from excel_manager import ExcelManager, cargar_indice_proveedores, cargar_indice_nombres
 from config import JSON_ESTADO, LABEL_PROCESADO
 
 
@@ -51,6 +51,7 @@ class ProcesadorGmailWorker(QThread):
                 '  ⚠ No se encontró "proveedores.xlsx" (o está vacío): '
                 'Gasto y Rubro quedarán en VERIFICAR para todas las facturas.'
             )
+        indice_nombres = cargar_indice_nombres()
         excel = ExcelManager()
         indice_duplicados = excel.cargar_indice_duplicados()
 
@@ -77,7 +78,8 @@ class ProcesadorGmailWorker(QThread):
                         errores += 1
                         continue
 
-                    datos = parsear_factura(texto, item['filename'], indice_proveedores, pdf_bytes=pdf_bytes)
+                    datos = parsear_factura(texto, item['filename'], indice_proveedores,
+                                            pdf_bytes=pdf_bytes, indice_nombres=indice_nombres)
 
                     if datos['clave'] in indice_duplicados['claves']:
                         excel.registrar_duplicado(item['filename'], datos['clave'],
@@ -170,6 +172,7 @@ class ProcesadorLocalWorker(QThread):
                 '  ⚠ No se encontró "proveedores.xlsx" (o está vacío): '
                 'Gasto y Rubro quedarán en VERIFICAR para todas las facturas.'
             )
+        indice_nombres = cargar_indice_nombres()
 
         # Read duplicate indices without keeping workbook open
         excel = ExcelManager()
@@ -202,7 +205,8 @@ class ProcesadorLocalWorker(QThread):
                 if not es_texto_valido(texto):
                     entry['error'] = 'Texto PDF insuficiente o tipo no reconocido'
                 else:
-                    datos = parsear_factura(texto, ruta.name, indice_proveedores, pdf_bytes=pdf_bytes)
+                    datos = parsear_factura(texto, ruta.name, indice_proveedores,
+                                            pdf_bytes=pdf_bytes, indice_nombres=indice_nombres)
                     entry['datos']      = datos
                     entry['dup_clave']  = datos['clave'] in indice_duplicados['claves']
                     entry['dup_nombre'] = ruta.name in indice_duplicados['nombres']

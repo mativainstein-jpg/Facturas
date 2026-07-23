@@ -11,7 +11,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from pdf_parser import extraer_texto, es_texto_valido, parsear_factura
-from excel_manager import cargar_indice_proveedores
+from excel_manager import cargar_indice_proveedores, cargar_indice_nombres
 
 _CAMPOS = [
     ('tipo',                'Tipo comprobante'),
@@ -54,7 +54,7 @@ def _fmt(val):
     return str(val)
 
 
-def analizar(ruta: Path, indice_proveedores: dict):
+def analizar(ruta: Path, indice_proveedores: dict, indice_nombres: dict = None):
     print(f'\n{"─" * 64}')
     print(f'  {ruta.name}')
     print(f'{"─" * 64}')
@@ -77,7 +77,8 @@ def analizar(ruta: Path, indice_proveedores: dict):
         return
 
     try:
-        datos = parsear_factura(texto, ruta.name, indice_proveedores, pdf_bytes=pdf_bytes)
+        datos = parsear_factura(texto, ruta.name, indice_proveedores,
+                                pdf_bytes=pdf_bytes, indice_nombres=indice_nombres)
     except Exception as e:
         print(f'  ✗ Error al parsear: {e}')
         return
@@ -121,8 +122,15 @@ if __name__ == '__main__':
     except Exception:
         indice_proveedores = {}
 
+    try:
+        indice_nombres = cargar_indice_nombres()
+        if indice_nombres:
+            print(f'Índice de nombres cargado: {len(indice_nombres)} entradas')
+    except Exception:
+        indice_nombres = {}
+
     for ruta in rutas:
-        analizar(ruta, indice_proveedores)
+        analizar(ruta, indice_proveedores, indice_nombres)
 
     print(f'\n{"─" * 64}')
     print(f'  {len(rutas)} PDF(s) analizados')
