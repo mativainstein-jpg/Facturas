@@ -36,7 +36,11 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         m = re.search(r'\d{11}_\d{3}_0*(\d+)_\d{8}', nombre_adjunto or '')
         if m:
             punto_venta_factura = m.group(1)
-    fecha       = _campo(texto, r'Fecha\s*de\s*Emisi[oó]n:\s*(\d{2}/\d{2}/\d{4})')
+    # Acepta también d/m/aaaa (algunos emisores no completan con ceros)
+    fecha       = _campo(texto, r'Fecha\s*de\s*Emisi[oó]n:\s*(\d{1,2}/\d{1,2}/\d{4})')
+    if fecha:
+        d_, m_, a_ = fecha.split('/')
+        fecha = f'{int(d_):02d}/{int(m_):02d}/{a_}'
 
     denominacion_pdf = _extraer_denominacion(texto)
     cuit             = _extraer_cuit_emisor(texto)

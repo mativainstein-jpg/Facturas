@@ -516,8 +516,13 @@ class ReconciliacionDialog(QDialog):
     def _leer_form(self):
         r = self._items[self._idx]
         datos = dict(r['datos'])
+        original = r['datos'].get('denominacion')
         for key, *_ in _CAMPOS:
             datos[key] = self._inputs[key].get_valor()
+        # Si el nombre no vino del cruce CUIT->nombre (celda roja) pero el
+        # usuario lo corrigió acá, ya está revisado: no marcarlo en rojo.
+        if not datos.get('denominacion_cruzada') and datos.get('denominacion') != original:
+            datos['denominacion_cruzada'] = True
         return datos
 
     def _confirmar(self):
