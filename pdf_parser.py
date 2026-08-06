@@ -42,7 +42,7 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         # Fallback: otros generadores (ej. Contabilium) no separan "Punto de
         # Venta" y "Comp. Nro" en dos campos, traen todo junto como
         # "Nº: 0008-00022470" o "NUMERO:0013 - 00002765".
-        m = re.search(r'(?:NUMERO|N[°ºo]\.?)\s*:\s*0*(\d+)\s*-\s*0*(\d+)', texto, re.I)
+        m = re.search(r'(?:NUMERO|N[°ºo]\.?|Factura\s*de\s*venta)\s*:?\s*0*(\d+)\s*-\s*0*(\d+)', texto, re.I)
         if m:
             if not punto_venta_factura:
                 punto_venta_factura = m.group(1)
@@ -70,7 +70,8 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     denominacion, denominacion_cruzada = _resolver_denominacion(
         cuit, denominacion_pdf, indice_nombres)
 
-    subtotal = _campo(texto, r'Subtotal\s*:\s*\$?\s*([\d.,]+)') or _subtotal_linea(linea)
+    # ":?" tolera "Subtotal 862.290,13" (algunos generadores no ponen ":")
+    subtotal = _campo(texto, r'Subtotal\s*:?\s*\$?\s*([\d.,]+)') or _subtotal_linea(linea)
     neto     = _campo(texto, r'Importe\s*Neto\s*Gravado:\s*\$?\s*([\d.,]+)')
     if not neto:
         # Fallback: otros generadores no dicen "Importe Neto Gravado", solo
@@ -79,19 +80,26 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
 
     # Las 5 alícuotas de IVA que puede traer una factura A. "I\.?V\.?A\.?"
     # tolera tanto "IVA" como "I.V.A" (con puntos entre cada letra).
+    # "[^\d\n]{0,30}" tolera texto corto entre el % y el monto (ej.
+    # "IVA 21% Venta de Bs. 181.080,93"), sin permitir saltar de más.
     _IVA = r'I\.?V\.?A\.?\s*'
-    iva25  = _campo(texto, _IVA + r'2[.,]5%\s*(?::)?\s*\$?\s*([\d.,]+)')
-    iva5   = _campo(texto, _IVA + r'5%\s*(?::)?\s*\$?\s*([\d.,]+)')
-    iva105 = _campo(texto, _IVA + r'10[.,]5%\s*(?::)?\s*\$?\s*([\d.,]+)')
-    iva21  = _campo(texto, _IVA + r'21%\s*(?::)?\s*\$?\s*([\d.,]+)')
-    iva27  = _campo(texto, _IVA + r'27%\s*(?::)?\s*\$?\s*([\d.,]+)')
+    # El monto capturado tiene que EMPEZAR con un dígito (\d[\d.,]*), para
+    # no agarrar de "monto" un punto suelto de alguna abreviatura en el
+    # medio (ej. "Bs." en "IVA 21% Venta de Bs. 181.080,93").
+    _HASTA_MONTO = r'[^\d\n]{0,30}?\$?\s*(\d[\d.,]*)'
+    iva25  = _campo(texto, _IVA + r'2[.,]5%' + _HASTA_MONTO)
+    iva5   = _campo(texto, _IVA + r'5%' + _HASTA_MONTO)
+    iva105 = _campo(texto, _IVA + r'10[.,]5%' + _HASTA_MONTO)
+    iva21  = _campo(texto, _IVA + r'21%' + _HASTA_MONTO)
+    iva27  = _campo(texto, _IVA + r'27%' + _HASTA_MONTO)
     otros  = _campo(texto, r'Importe\s*de\s*Otros\s*Tributos:\s*\$?\s*([\d.,]+)')
 
     total = _campo(texto, r'Importe\s*Total(?:\s*del\s*Comprobante)?:\s*\$?\s*([\d.,]+)')
     if not total:
-        # Fallback: otros generadores usan "TOTAL:" a secas. \b evita que
-        # "matchee" dentro de "SUBTOTAL:".
-        total = _campo(texto, r'\bTOTAL:\s*\$?\s*([\d.,]+)')
+        # Fallback: otros generadores usan "TOTAL:" a secas, o "MONTO TOTAL"
+        # sin dos puntos. \b evita que "TOTAL:" "matchee" dentro de "SUBTOTAL:".
+        total = _campo(texto, r'\bTOTAL:\s*\$?\s*([\d.,]+)') \
+             or _campo(texto, r'MONTO\s*TOTAL\s*\$?\s*([\d.,]+)')
     if not total and tipo == 'FCC':
         total = _subtotal_linea(linea)
 
@@ -101,6 +109,10 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     exentos        = _campo(texto, r'Importe\s*Exento[s]?:\s*\$?\s*([\d.,]+)')
     perc_iva       = _campo(texto, r'Percepci[oó]n\s*(?:de\s*)?IVA\s*(?:[\d.,]+\s*%)?\s*:?\s*\$?\s*([\d.,]+)')
     perc_iibb      = _campo(texto, r'Percepci[oó]n\s*(?:de\s*)?(?:Ingresos?\s*Brutos?|IIBB)\s*(?:[\d.,]+\s*%)?\s*:?\s*\$?\s*([\d.,]+)')
+    if not perc_iibb:
+        # Fallback: "Perc. IIBB <Provincia> (código) monto", que puede
+        # repetirse varias veces (una por jurisdicción) — se suman todas.
+        perc_iibb = _campo_suma(texto, r'Perc\.?\s*IIBB\s*[A-Za-zÀ-ÿ\s]*?\(\d+\)\s*([\d.,]+)')
     perc_ganancias = _campo(texto, r'Percepci[oó]n\s*(?:de\s*)?Ganancias?\s*(?:[\d.,]+\s*%)?\s*:?\s*\$?\s*([\d.,]+)')
 
     kilos      = _kilos_linea(linea)
@@ -410,6 +422,15 @@ def _detectar_tipo(texto):
         letra = (m.group(1) or m.group(2)).upper()
         return 'FCA' if letra == 'A' else 'FCC'
 
+    # Fallback: otros generadores (ej. "Factura de venta") ponen el título
+    # y la letra en líneas separadas por otro texto en el medio (no pegados
+    # como arriba). Se busca una línea que sea SOLO "A" o "C" cerca del
+    # inicio del documento.
+    m = re.search(r'^\s*([AC])\s*$', texto[:400], re.M)
+    if m:
+        letra = m.group(1).upper()
+        return 'FCA' if letra == 'A' else 'FCC'
+
     return ''
 
 
@@ -470,6 +491,17 @@ def _resolver_denominacion(cuit, denominacion_pdf, indice_nombres):
 def _campo(texto, patron):
     m = re.search(patron, texto, re.I)
     return m.group(1).strip() if m else ''
+
+
+def _campo_suma(texto, patron):
+    """Como _campo, pero suma TODOS los montos que matcheen (para importes
+    que se repiten varias veces en la misma factura, ej. percepción de
+    IIBB discriminada por provincia)."""
+    valores = [_num(m.group(1)) for m in re.finditer(patron, texto, re.I)]
+    # Formato fijo a 2 decimales: el float "crudo" (ej. 30180.160000000003,
+    # error de coma flotante) hace que _num() lo confunda con separador de
+    # miles y lo multiplique por mil millones.
+    return f'{sum(valores):.2f}' if valores else ''
 
 
 def _num_o_none(s):
