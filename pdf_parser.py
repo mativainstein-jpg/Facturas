@@ -21,7 +21,9 @@ _COD_TIPO = r'C[oó]d\.?\s*:?\s*0*1'
 
 
 def es_texto_valido(texto):
-    return bool(texto) and len(texto) > 100 and bool(re.search(_COD_TIPO, texto, re.I))
+    # Reusa _detectar_tipo (más abajo) para que cualquier mejora ahí
+    # (nuevos formatos) también sirva acá, sin mantener 2 regex distintas.
+    return bool(texto) and len(texto) > 100 and _detectar_tipo(texto) != ''
 
 
 # ---------------------------------------------------------------------------
@@ -33,7 +35,7 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     tipo = _detectar_tipo(texto)
     linea = _extraer_linea_producto(texto, pdf_bytes)
 
-    numero      = _campo(texto, r'Comp\.\s*Nro:\s*0*(\d+)')
+    numero      = _campo(texto, r'Comp\.\s*Nro\.?:\s*0*(\d+)')   # ".?" tolera "Nro.:"
     punto_venta = PUNTO_VENTA_FIJO
     punto_venta_factura = _campo(texto, r'Punto\s*de\s*Venta:\s*0*(\d+)')
     if not numero or not punto_venta_factura:
@@ -52,30 +54,37 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         m = re.search(r'\d{11}_\d{3}_0*(\d+)_\d{8}', nombre_adjunto or '')
         if m:
             punto_venta_factura = m.group(1)
-    # Acepta también d/m/aaaa (algunos emisores no completan con ceros)
-    fecha = _campo(texto, r'Fecha\s*de\s*Emisi[oó]n:\s*(\d{1,2}/\d{1,2}/\d{4})')
-    if not fecha:
+    # Acepta también d/m/aaaa (algunos emisores no completan con ceros) y
+    # espacios sueltos alrededor de las barras (ej. "1/ 7/2026", texto mal
+    # justificado en el PDF original).
+    _RE_FECHA = r'(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{4})'
+    m = re.search(r'Fecha\s*de\s*Emisi[oó]n:\s*' + _RE_FECHA, texto, re.I)
+    if not m:
         # Fallback: otros generadores usan "Fecha:" a secas (sin "de Emisión").
         # El \s* pegado a los ":" evita agarrar "Fecha Vto. CAE:" o similares.
-        fecha = _campo(texto, r'\bFecha\s*:\s*(\d{1,2}/\d{1,2}/\d{4})')
-    if fecha:
-        d_, m_, a_ = fecha.split('/')
-        fecha = f'{int(d_):02d}/{int(m_):02d}/{a_}'
+        m = re.search(r'\bFecha\s*:\s*' + _RE_FECHA, texto, re.I)
+    fecha = f'{int(m.group(1)):02d}/{int(m.group(2)):02d}/{m.group(3)}' if m else ''
 
     denominacion_pdf = _extraer_denominacion(texto)
     cuit             = _extraer_cuit_emisor(texto)
     denominacion, denominacion_cruzada = _resolver_denominacion(
         cuit, denominacion_pdf, indice_nombres)
 
+    subtotal = _campo(texto, r'Subtotal\s*:\s*\$?\s*([\d.,]+)') or _subtotal_linea(linea)
     neto     = _campo(texto, r'Importe\s*Neto\s*Gravado:\s*\$?\s*([\d.,]+)')
-    subtotal = _campo(texto, r'Subtotal:\s*\$?\s*([\d.,]+)') or _subtotal_linea(linea)
+    if not neto:
+        # Fallback: otros generadores no dicen "Importe Neto Gravado", solo
+        # "Subtotal" (mismo concepto: el neto antes de IVA).
+        neto = subtotal
 
-    # Las 5 alícuotas de IVA que puede traer una factura A
-    iva25  = _campo(texto, r'IVA\s*2[.,]5%\s*(?::)?\s*\$?\s*([\d.,]+)')
-    iva5   = _campo(texto, r'IVA\s*5%\s*(?::)?\s*\$?\s*([\d.,]+)')
-    iva105 = _campo(texto, r'IVA\s*10[.,]5%\s*(?::)?\s*\$?\s*([\d.,]+)')
-    iva21  = _campo(texto, r'IVA\s*21%\s*(?::)?\s*\$?\s*([\d.,]+)')
-    iva27  = _campo(texto, r'IVA\s*27%\s*(?::)?\s*\$?\s*([\d.,]+)')
+    # Las 5 alícuotas de IVA que puede traer una factura A. "I\.?V\.?A\.?"
+    # tolera tanto "IVA" como "I.V.A" (con puntos entre cada letra).
+    _IVA = r'I\.?V\.?A\.?\s*'
+    iva25  = _campo(texto, _IVA + r'2[.,]5%\s*(?::)?\s*\$?\s*([\d.,]+)')
+    iva5   = _campo(texto, _IVA + r'5%\s*(?::)?\s*\$?\s*([\d.,]+)')
+    iva105 = _campo(texto, _IVA + r'10[.,]5%\s*(?::)?\s*\$?\s*([\d.,]+)')
+    iva21  = _campo(texto, _IVA + r'21%\s*(?::)?\s*\$?\s*([\d.,]+)')
+    iva27  = _campo(texto, _IVA + r'27%\s*(?::)?\s*\$?\s*([\d.,]+)')
     otros  = _campo(texto, r'Importe\s*de\s*Otros\s*Tributos:\s*\$?\s*([\d.,]+)')
 
     total = _campo(texto, r'Importe\s*Total(?:\s*del\s*Comprobante)?:\s*\$?\s*([\d.,]+)')
@@ -379,6 +388,18 @@ def _subtotal_linea(linea):
 def _detectar_tipo(texto):
     if re.search(_COD_TIPO + r'1', texto, re.I):      return 'FCC'   # ...11
     if re.search(_COD_TIPO + r'(?!1)', texto, re.I):  return 'FCA'   # ...1 (no 11)
+
+    # Fallback: cuando el PDF tiene columnas superpuestas (ej. GRECA S.A.),
+    # pdfplumber puede desordenar "CODIGO" y el número "01"/"11" a varias
+    # líneas de distancia, rompiendo el patrón de arriba. La letra grande
+    # del recuadro (obligatoria por ley en toda factura A/B/C) suele quedar
+    # pegada a la palabra "FACTURA" — se busca solo cerca del inicio del
+    # documento para no confundirla con una A/C suelta en el cuerpo.
+    m = re.search(r'\b([AC])\b\s*FACTURA|FACTURA\s*\b([AC])\b', texto[:400], re.I)
+    if m:
+        letra = (m.group(1) or m.group(2)).upper()
+        return 'FCA' if letra == 'A' else 'FCC'
+
     return ''
 
 
@@ -456,7 +477,13 @@ def _num(s):
         return 0.0
 
     if '.' in s and ',' in s:
-        s = s.replace('.', '').replace(',', '.')
+        # El separador DECIMAL es el que aparece último: formato AR
+        # ("1.234,56", coma al final) o formato US ("1,234.56", punto al
+        # final) — algunos generadores (ej. GRECA S.A.) usan el segundo.
+        if s.rfind(',') > s.rfind('.'):
+            s = s.replace('.', '').replace(',', '.')   # AR: 1.234,56 -> 1234.56
+        else:
+            s = s.replace(',', '')                     # US: 1,234.56 -> 1234.56
     elif ',' in s:
         s = s.replace(',', '.')
     elif '.' in s:
