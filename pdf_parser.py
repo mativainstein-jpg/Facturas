@@ -1,7 +1,7 @@
 import io
 import re
 import pdfplumber
-from config import CUIT_NAIMAN, COLS, PUNTO_VENTA_FIJO
+from config import CUIT_NAIMAN, NOMBRE_NAIMAN, COLS, PUNTO_VENTA_FIJO
 
 
 # ---------------------------------------------------------------------------
@@ -14,8 +14,14 @@ def extraer_texto(pdf_bytes):
     return '\n'.join(paginas)
 
 
+# Etiqueta "Cód." del tipo de comprobante: algunos generadores (ej. Contabilium)
+# la escriben con tilde ("Cód.") y/o con dos puntos ("Cód.: 11") en vez del
+# "COD. 11" plano de AFIP.
+_COD_TIPO = r'C[oó]d\.?\s*:?\s*0*1'
+
+
 def es_texto_valido(texto):
-    return bool(texto) and len(texto) > 100 and bool(re.search(r'COD\.\s*0*1', texto, re.I))
+    return bool(texto) and len(texto) > 100 and bool(re.search(_COD_TIPO, texto, re.I))
 
 
 # ---------------------------------------------------------------------------
@@ -30,6 +36,16 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     numero      = _campo(texto, r'Comp\.\s*Nro:\s*0*(\d+)')
     punto_venta = PUNTO_VENTA_FIJO
     punto_venta_factura = _campo(texto, r'Punto\s*de\s*Venta:\s*0*(\d+)')
+    if not numero or not punto_venta_factura:
+        # Fallback: otros generadores (ej. Contabilium) no separan "Punto de
+        # Venta" y "Comp. Nro" en dos campos, traen todo junto como
+        # "Nº: 0008-00022470" o "NUMERO:0013 - 00002765".
+        m = re.search(r'(?:NUMERO|N[°ºo]\.?)\s*:\s*0*(\d+)\s*-\s*0*(\d+)', texto, re.I)
+        if m:
+            if not punto_venta_factura:
+                punto_venta_factura = m.group(1)
+            if not numero:
+                numero = m.group(2)
     if not punto_venta_factura:
         # Fallback: los PDF descargados de AFIP/ARCA se llaman
         # cuit_tipo_puntoventa_numero.pdf (ej. 20301648732_001_00003_00000096.pdf)
@@ -37,7 +53,11 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         if m:
             punto_venta_factura = m.group(1)
     # Acepta también d/m/aaaa (algunos emisores no completan con ceros)
-    fecha       = _campo(texto, r'Fecha\s*de\s*Emisi[oó]n:\s*(\d{1,2}/\d{1,2}/\d{4})')
+    fecha = _campo(texto, r'Fecha\s*de\s*Emisi[oó]n:\s*(\d{1,2}/\d{1,2}/\d{4})')
+    if not fecha:
+        # Fallback: otros generadores usan "Fecha:" a secas (sin "de Emisión").
+        # El \s* pegado a los ":" evita agarrar "Fecha Vto. CAE:" o similares.
+        fecha = _campo(texto, r'\bFecha\s*:\s*(\d{1,2}/\d{1,2}/\d{4})')
     if fecha:
         d_, m_, a_ = fecha.split('/')
         fecha = f'{int(d_):02d}/{int(m_):02d}/{a_}'
@@ -59,6 +79,10 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     otros  = _campo(texto, r'Importe\s*de\s*Otros\s*Tributos:\s*\$?\s*([\d.,]+)')
 
     total = _campo(texto, r'Importe\s*Total(?:\s*del\s*Comprobante)?:\s*\$?\s*([\d.,]+)')
+    if not total:
+        # Fallback: otros generadores usan "TOTAL:" a secas. \b evita que
+        # "matchee" dentro de "SUBTOTAL:".
+        total = _campo(texto, r'\bTOTAL:\s*\$?\s*([\d.,]+)')
     if not total and tipo == 'FCC':
         total = _subtotal_linea(linea)
 
@@ -353,15 +377,20 @@ def _subtotal_linea(linea):
 
 
 def _detectar_tipo(texto):
-    if re.search(r'COD\.\s*0*11', texto, re.I):      return 'FCC'
-    if re.search(r'COD\.\s*0*1(?!1)', texto, re.I):  return 'FCA'
+    if re.search(_COD_TIPO + r'1', texto, re.I):      return 'FCC'   # ...11
+    if re.search(_COD_TIPO + r'(?!1)', texto, re.I):  return 'FCA'   # ...1 (no 11)
     return ''
 
 
 def _extraer_denominacion(texto):
-    m = re.search(r'Raz[oó]n\s*Social:\s*([A-ZÁÉÍÓÚÑ0-9 .,\-]+)', texto, re.I)
-    if m:
-        return _limpiar_texto(m.group(1))
+    # Algunos generadores (ej. Contabilium) usan "Razón Social:" para el
+    # RECEPTOR (nosotros mismos), no para el proveedor. Si el primer match
+    # es NAIMAN, se descarta y se sigue buscando otro (o se cae al fallback
+    # de letterhead más abajo).
+    for m in re.finditer(r'Raz[oó]n\s*Social:\s*([A-ZÁÉÍÓÚÑ0-9 .,\-]+)', texto, re.I):
+        nombre = _limpiar_texto(m.group(1))
+        if NOMBRE_NAIMAN.upper() not in nombre.upper():
+            return nombre
 
     lineas = [l.strip() for l in texto.splitlines() if l.strip()]
     for i, linea in enumerate(lineas):
