@@ -219,6 +219,18 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
 # Extracción de línea de producto — cascada de 3 estrategias
 # ---------------------------------------------------------------------------
 
+# Nombres de unidad de medida que puede traer una factura AFIP. "Otras
+# Unidades" es un nombre oficial de dos palabras (no una variante rara) —
+# sin el "(?:otras\s+)?" opcional, el número quedaba pegado a "Otras" en vez
+# de a "Unidades" y la línea completa no matcheaba (cantidad/precio vacíos).
+_UNIDAD_PATRON = r'(?:otras\s+)?unidad(?:es)?'
+
+
+def _normalizar_unidad(raw):
+    raw = (raw or '').lower()
+    return 'kg' if ('kg' in raw or 'kilo' in raw) else 'unidades'
+
+
 def _extraer_linea_producto(texto, pdf_bytes=None):
     # 1. pdfplumber table extraction (best for structured AFIP tables)
     if pdf_bytes:
@@ -246,12 +258,11 @@ def _extraer_de_tablas(pdf_bytes):
                             continue
                         cells = [str(c).strip() if c else '' for c in row]
                         row_str = ' '.join(cells)
-                        m = re.search(r'([\d.,]+)\s*(kg|kilos|unidad(?:es)?)', row_str, re.I)
+                        m = re.search(rf'([\d.,]+)\s*(kg|kilos|{_UNIDAD_PATRON})', row_str, re.I)
                         if not m:
                             continue
                         cantidad = m.group(1)
-                        raw_unit = m.group(2).lower()
-                        unidad   = 'kg' if 'kg' in raw_unit or 'kilo' in raw_unit else 'unidades'
+                        unidad   = _normalizar_unidad(m.group(2))
                         nums     = re.findall(r'[\d.,]+', row_str)
                         # Last two numbers are typically unit price and line total
                         precio   = nums[-2] if len(nums) >= 3 else (nums[-1] if len(nums) >= 2 else '')
@@ -274,7 +285,7 @@ def _extraer_linea_single(texto):
         linea = linea.strip()
 
         m = re.match(
-            r'(.+?)\s+([\d.,]+)\s+(kg|kilos|unidad(?:es)?)'
+            rf'(.+?)\s+([\d.,]+)\s+(kg|kilos|{_UNIDAD_PATRON})'
             r'\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)%\s+([\d.,]+)',
             linea, re.I
         )
@@ -282,13 +293,13 @@ def _extraer_linea_single(texto):
             return {
                 'descripcion':     m.group(1).strip(),
                 'cantidad':        m.group(2),
-                'unidad':          m.group(3).lower(),
+                'unidad':          _normalizar_unidad(m.group(3)),
                 'precio_unitario': m.group(4),
                 'subtotal':        m.group(6),
             }
 
         m = re.match(
-            r'(.+?)\s+([\d.,]+)\s+(kg|kilos|unidad(?:es)?)'
+            rf'(.+?)\s+([\d.,]+)\s+(kg|kilos|{_UNIDAD_PATRON})'
             r'\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)',
             linea, re.I
         )
@@ -296,7 +307,7 @@ def _extraer_linea_single(texto):
             return {
                 'descripcion':     m.group(1).strip(),
                 'cantidad':        m.group(2),
-                'unidad':          m.group(3).lower(),
+                'unidad':          _normalizar_unidad(m.group(3)),
                 'precio_unitario': m.group(4),
                 'subtotal':        m.group(7),
             }
@@ -356,13 +367,12 @@ def _extraer_multilinea(texto):
         if re.match(r'^(kg|kilos)$', linea, re.I):
             unidad_encontrada = 'kg'
             break
-        if re.match(r'^unidad(?:es)?$', linea, re.I):
+        if re.match(rf'^{_UNIDAD_PATRON}$', linea, re.I):
             unidad_encontrada = 'unidades'
             break
-        m = re.search(r'([\d.,]+)\s+(kg|kilos|unidad(?:es)?)', linea, re.I)
+        m = re.search(rf'([\d.,]+)\s+(kg|kilos|{_UNIDAD_PATRON})', linea, re.I)
         if m:
-            raw = m.group(2).lower()
-            unidad_encontrada = 'kg' if 'kg' in raw or 'kilo' in raw else 'unidades'
+            unidad_encontrada = _normalizar_unidad(m.group(2))
             if not cantidad:
                 cantidad = m.group(1)
             break
