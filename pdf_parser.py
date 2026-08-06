@@ -20,7 +20,18 @@ def extraer_texto(pdf_bytes):
 _COD_TIPO = r'C[oó]d\.?\s*:?\s*0*1'
 
 
+def _es_constancia_pago(texto):
+    """
+    "Constancia de Pago": no es una factura de compra (no tiene proveedor,
+    CAE, ni desglose de IVA) — es un comprobante de pago a un organismo
+    (ej. SENASA). Se procesa con reglas fijas en vez del parser de facturas.
+    """
+    return bool(re.search(r'CONSTANCIA\s+DE\s+PAGO', texto, re.I))
+
+
 def es_texto_valido(texto):
+    if _es_constancia_pago(texto):
+        return True
     # Reusa _detectar_tipo (más abajo) para que cualquier mejora ahí
     # (nuevos formatos) también sirva acá, sin mantener 2 regex distintas.
     return bool(texto) and len(texto) > 100 and _detectar_tipo(texto) != ''
@@ -32,6 +43,9 @@ def es_texto_valido(texto):
 
 def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=None,
                     indice_nombres=None):
+    if _es_constancia_pago(texto):
+        return _parsear_constancia_pago(texto, nombre_adjunto, indice_proveedores, indice_nombres)
+
     tipo = _detectar_tipo(texto)
     linea = _extraer_linea_producto(texto, pdf_bytes)
 
@@ -432,6 +446,77 @@ def _detectar_tipo(texto):
         return 'FCA' if letra == 'A' else 'FCC'
 
     return ''
+
+
+# CUIT del organismo que emite las "Constancia de Pago" (ej. SENASA) — no
+# está en el documento (el único CUIT que trae es el de NAIMAN, el receptor,
+# no sirve para identificar al emisor), así que va fijo. Ya está cargado en
+# los maestros (cuit_nombre.xlsx / proveedores.xlsx) con nombre, gasto y
+# rubro correctos: el cruce normal por CUIT hace el resto solo.
+_CUIT_CONSTANCIA_PAGO = '30688384547'
+_PV_CONSTANCIA_PAGO = '084'
+
+
+def _parsear_constancia_pago(texto, nombre_adjunto, indice_proveedores, indice_nombres):
+    numero = _campo(texto, r'N[°ºo]\.?\s*de\s*Boleta\s*(\d+)')
+    monto  = _campo(texto, r'Monto\s*Total\s*A\s*Pagar\s*\$?\s*([\d.,]+)')
+    # Único dato con forma de fecha en todo el documento — más simple y
+    # robusto que anclarse a la etiqueta "Fecha Pago" (que es el encabezado
+    # de una tabla, con la fecha real recién en la fila de datos de abajo).
+    m_fecha = re.search(r'(\d{1,2})/(\d{1,2})/(\d{4})', texto)
+    fecha = f'{int(m_fecha.group(1)):02d}/{int(m_fecha.group(2)):02d}/{m_fecha.group(3)}' if m_fecha else ''
+
+    cuit = _normalizar_cuit(_CUIT_CONSTANCIA_PAGO)
+    denominacion, denominacion_cruzada = _resolver_denominacion(cuit, '', indice_nombres)
+
+    monto_num = _num_o_none(monto)
+
+    prov = indice_proveedores.get(_CUIT_CONSTANCIA_PAGO) if indice_proveedores else None
+    gasto      = prov['gasto']      if prov else None
+    rubro      = prov['rubro']      if prov else None
+    desc_gasto = prov['desc_gasto'] if prov else None
+    desc_rubro = prov['desc_rubro'] if prov else None
+
+    partes_fecha = fecha.split('/') if fecha else []
+    mes  = int(partes_fecha[1]) if len(partes_fecha) > 1 else None
+    anio = int(partes_fecha[2]) if len(partes_fecha) > 2 else None
+
+    clave = '|'.join(['RCC', cuit, _PV_CONSTANCIA_PAGO, numero or 'SIN_NUMERO'])
+
+    return {
+        'tipo':                    'RCC',
+        'numero':                  numero or None,
+        'punto_venta':             PUNTO_VENTA_FIJO,
+        'punto_venta_factura':     _PV_CONSTANCIA_PAGO,
+        'fecha':                   fecha or None,
+        'denominacion':            denominacion or None,
+        'denominacion_cruzada':    denominacion_cruzada,
+        'cuit':                    cuit,
+        'neto_num':                0.0,
+        'iva_num':                 0.0,
+        'otros_tributos_num':      None,
+        'no_gravado_num':          None,
+        'imp_internos_num':        None,
+        'exentos_num':             monto_num,   # "Exento: el monto a pagar"
+        'percepcion_iva_num':      None,
+        'percepcion_iibb_num':     None,
+        'percepcion_ganancias_num': None,
+        'kilos_num':               None,
+        'precio_unitario_num':     None,
+        'monotributista':          None,
+        'total_num':               monto_num,
+        'tasa':                    0,
+        'gasto':                   gasto,
+        'rubro':                   rubro,
+        'mes':                     mes,
+        'anio':                    anio,
+        'codigo_operacion':        '',
+        'posicion':                '',
+        'descripcion_gasto':       desc_gasto,
+        'descripcion_rubro':       desc_rubro,
+        'nombre_adjunto':          nombre_adjunto,
+        'clave':                   clave,
+    }
 
 
 def _extraer_denominacion(texto):
