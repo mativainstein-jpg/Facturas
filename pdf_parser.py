@@ -454,7 +454,9 @@ def _detectar_tipo(texto):
 # los maestros (cuit_nombre.xlsx / proveedores.xlsx) con nombre, gasto y
 # rubro correctos: el cruce normal por CUIT hace el resto solo.
 _CUIT_CONSTANCIA_PAGO = '30688384547'
-_PV_CONSTANCIA_PAGO = '084'
+# "084" es el TIPO fijo de este comprobante (columna B), no un punto de
+# venta real — este documento no trae uno.
+_TIPO_FIJO_CONSTANCIA_PAGO = '084'
 
 
 def _parsear_constancia_pago(texto, nombre_adjunto, indice_proveedores, indice_nombres):
@@ -481,13 +483,13 @@ def _parsear_constancia_pago(texto, nombre_adjunto, indice_proveedores, indice_n
     mes  = int(partes_fecha[1]) if len(partes_fecha) > 1 else None
     anio = int(partes_fecha[2]) if len(partes_fecha) > 2 else None
 
-    clave = '|'.join(['RCC', cuit, _PV_CONSTANCIA_PAGO, numero or 'SIN_NUMERO'])
+    clave = '|'.join(['RCC', cuit, _TIPO_FIJO_CONSTANCIA_PAGO, numero or 'SIN_NUMERO'])
 
     return {
         'tipo':                    'RCC',
         'numero':                  numero or None,
-        'punto_venta':             PUNTO_VENTA_FIJO,
-        'punto_venta_factura':     _PV_CONSTANCIA_PAGO,
+        'punto_venta':             _TIPO_FIJO_CONSTANCIA_PAGO,   # col B: "084", no el "4" habitual
+        'punto_venta_factura':     None,   # col D: no hay punto de venta real en este documento
         'fecha':                   fecha or None,
         'denominacion':            denominacion or None,
         'denominacion_cruzada':    denominacion_cruzada,
