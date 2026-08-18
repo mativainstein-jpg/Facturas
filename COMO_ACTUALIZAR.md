@@ -40,7 +40,7 @@ Listo. A partir de aca, el administrativo **solo abre `procesar.bat`**.
 ## Uso diario (lo hace el administrativo)
 
 - Doble clic en **`procesar.bat`**.
-- Al abrir, si hay internet, busca la ultima version sola (2 segundos) y arranca.
+- Al abrir, si hay internet, busca la ultima version sola (unos segundos) y arranca.
 - Si no hay internet, abre igual con la ultima version que tenia. **No se traba.**
 
 ---
