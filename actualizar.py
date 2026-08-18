@@ -5,6 +5,8 @@ Diseñado para ser a prueba de fallos:
   - Si no hay git, o no es un repo, o no hay internet → no hace nada y deja
     que la app abra con la versión que ya está en disco.
   - Nunca corta el arranque de la app: cualquier problema se informa y se sigue.
+  - Si ya se chequeó HOY, no vuelve a buscar en el servidor: abre directo.
+    Esto evita la espera de red en cada apertura del día.
 
 Se ejecuta desde procesar.bat ANTES de abrir la aplicación. Está en Python
 (y no en el .bat) para que actualizarse a sí mismo sea seguro: Python carga
@@ -12,9 +14,11 @@ todo el archivo en memoria antes de ejecutarlo.
 """
 import subprocess
 import sys
+from datetime import date
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+ARCHIVO_MARCA = BASE_DIR / 'ultima_actualizacion.txt'   # NO se versiona (.gitignore)
 
 
 def _git(*args, timeout=30):
@@ -48,7 +52,26 @@ def _mostrar_version():
         print(f'  Version (fecha;hora): {version}')
 
 
+def _ya_se_chequeo_hoy():
+    try:
+        return ARCHIVO_MARCA.read_text().strip() == str(date.today())
+    except Exception:
+        return False
+
+
+def _marcar_chequeado_hoy():
+    try:
+        ARCHIVO_MARCA.write_text(str(date.today()))
+    except Exception:
+        pass   # no es crítico: en el peor caso vuelve a chequear la próxima vez
+
+
 def main():
+    # Ya se buscaron actualizaciones hoy: abrir directo, sin tocar la red.
+    if _ya_se_chequeo_hoy():
+        _mostrar_version()
+        return
+
     # ¿git disponible?
     ok, _ = _git('--version', timeout=10)
     if not ok:
@@ -67,9 +90,10 @@ def main():
         print('  [i] No pude determinar la version: se usa la actual.')
         return
 
-    # Buscar cambios en el servidor (acá se necesita internet)
+    # Buscar cambios en el servidor (acá se necesita internet). Timeout corto:
+    # si la conexión está mala, mejor fallar rápido y abrir con lo que hay.
     print('  Buscando actualizaciones...')
-    ok, _ = _git('fetch', '--quiet', timeout=30)
+    ok, _ = _git('fetch', '--quiet', timeout=10)
     if not ok:
         print('  [i] Sin internet o sin acceso: se usa la version que ya tenes.')
         _mostrar_version()
@@ -78,9 +102,10 @@ def main():
     # Aplicar la última versión sin riesgo de conflictos.
     # Los datos del usuario (facturas.xlsx, token.json, credentials.json) están
     # en .gitignore, así que esto NO los toca.
-    ok, _ = _git('reset', '--hard', '--quiet', f'origin/{rama}', timeout=30)
+    ok, _ = _git('reset', '--hard', '--quiet', f'origin/{rama}', timeout=15)
     if ok:
         print('  Version actualizada a la ultima.')
+        _marcar_chequeado_hoy()   # recién si se pudo hablar con el servidor
     else:
         print('  [i] No pude actualizar: se usa la version que ya tenes.')
     _mostrar_version()
