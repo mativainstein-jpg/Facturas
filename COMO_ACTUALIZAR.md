@@ -40,17 +40,8 @@ Listo. A partir de aca, el administrativo **solo abre `procesar.bat`**.
 ## Uso diario (lo hace el administrativo)
 
 - Doble clic en **`procesar.bat`**.
-- La PRIMERA vez que se abre en el dia, busca la ultima version sola (unos
-  segundos) y arranca. Si se vuelve a abrir despues, ese mismo dia, abre
-  directo (ya chequeo hoy, no vuelve a tardar).
+- Al abrir, si hay internet, busca la ultima version sola (unos segundos) y arranca.
 - Si no hay internet, abre igual con la ultima version que tenia. **No se traba.**
-
-### ¿Necesitas que actualice YA, sin esperar a mañana?
-
-Doble clic en **`forzar_actualizacion.bat`** en vez de `procesar.bat`. Hace lo
-mismo pero siempre busca la ultima version, aunque ya se haya abierto la app
-antes ese mismo dia. Util cuando le pediste a Claude un cambio y queres que
-le llegue al administrativo en el momento.
 
 ---
 

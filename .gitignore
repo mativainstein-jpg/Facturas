@@ -5,7 +5,6 @@ credentials.json
 token.json
 estado.json
 error.log
-ultima_actualizacion.txt
 
 # Tablas de configuracion compartida (SI van en git, se actualizan solas)
 !proveedores.xlsx
