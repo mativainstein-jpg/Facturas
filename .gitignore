@@ -17,3 +17,6 @@ build/
 dist/
 *.spec
 !ProcesadorFacturas.spec
+
+# Bot de Telegram (Node.js)
+node_modules/
