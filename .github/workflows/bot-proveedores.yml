@@ -1,13 +1,22 @@
 name: Bot proveedores (Telegram)
 
-# Revisa cada 15 minutos si llegó un Excel de proveedores nuevo por Telegram,
-# y lo aplica solo (sin revisión) a los maestros de Facturas y Bejerman.
-# También se puede disparar al toque desde "Actions" (o Claude lo dispara
-# por API) sin esperar al próximo horario.
+# Revisa cada 1 hora si llegó un Excel de proveedores nuevo por Telegram, y
+# lo aplica solo (sin revisión) a los maestros de Facturas y Bejerman.
+#
+# ¿Por qué cada 1 hora y no más seguido? GitHub cobra el minuto completo
+# redondeado hacia arriba por cada corrida, aunque tarde 5 segundos. Cada
+# 15 min = ~2880 min/mes (supera el cupo gratis de 2000 min/mes de un repo
+# privado). Cada 1 hora = ~720 min/mes, bien adentro del cupo. Como el
+# archivo se manda como mucho día por medio, la demora máxima de 1 hora es
+# irrelevante en la práctica.
+#
+# Para que sea instantáneo en algún momento puntual, se puede disparar
+# manual desde "Actions" (o pedírselo a Claude) sin esperar al próximo
+# horario y sin gastar minutos de más.
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '7 * * * *'
   workflow_dispatch: {}
 
 permissions:
