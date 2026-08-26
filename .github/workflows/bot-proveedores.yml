@@ -13,6 +13,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: bot-proveedores
+  cancel-in-progress: false
+
 jobs:
   revisar-telegram:
     runs-on: ubuntu-latest
