@@ -16,6 +16,7 @@
 //                            claude/bejerman-invoice-reader-do4scq")
 
 import * as XLSX from 'xlsx';
+import { waitUntil } from '@vercel/functions';
 
 const GITHUB_API = 'https://api.github.com';
 const MIN_FILAS_VALIDAS = 100; // debajo de esto, se sospecha archivo incorrecto
@@ -257,6 +258,63 @@ async function tgGetFileBuffer(fileId) {
 // Handler principal
 // ---------------------------------------------------------------------------
 
+async function procesarMensaje(message) {
+  const chatId = message.chat.id;
+
+  if (!message.document) {
+    await tgSendMessage(chatId, 'Mandame el Excel de proveedores como archivo adjunto (no como foto ni texto).');
+    return;
+  }
+
+  await tgSendMessage(
+    chatId,
+    `📥 Recibido: ${message.document.file_name || 'archivo'}. Lo estoy revisando...`
+  );
+
+  try {
+    const buffer = await tgGetFileBuffer(message.document.file_id);
+    const nuevoMap = parsearArchivoNuevo(buffer);
+
+    await tgSendMessage(
+      chatId,
+      `⏳ En proceso: actualizando ${nuevoMap.size} proveedores en cada rama...`
+    );
+
+    const owner = process.env.GITHUB_OWNER;
+    const repo = process.env.GITHUB_REPO;
+    const ramas = (process.env.TARGET_BRANCHES || 'main')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+
+    const resultados = [];
+    for (const branch of ramas) {
+      resultados.push(await actualizarRama(owner, repo, branch, nuevoMap));
+    }
+
+    const r0 = resultados[0];
+    const nuevos = r0.agregadosNombre + r0.agregadosProv;
+    const corregidos = r0.corregidosNombre + r0.corregidosProv;
+
+    if (nuevos + corregidos === 0) {
+      await tgSendMessage(
+        chatId,
+        `✅ Hecho. Revisé ${nuevoMap.size} proveedores, no había nada nuevo para actualizar.`
+      );
+    } else {
+      await tgSendMessage(
+        chatId,
+        `✅ Hecho (leí ${nuevoMap.size} filas):\n` +
+          `• ${nuevos} nuevos\n` +
+          `• ${corregidos} corregidos\n` +
+          `Ramas: ${resultados.map((r) => r.branch).join(', ')}`
+      );
+    }
+  } catch (err) {
+    await tgSendMessage(chatId, `❌ No pude actualizar: ${err.message}`);
+  }
+}
+
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.status(200).send('OK');
@@ -272,53 +330,18 @@ export default async function handler(req, res) {
   }
 
   // Responder rápido a Telegram (si no, reintenta el mismo update) y seguir
-  // procesando después.
+  // procesando después. waitUntil mantiene viva la función hasta completar
+  // el procesamiento crítico, aun después de enviar esta respuesta.
   res.status(200).send('OK');
 
   const message = req.body && req.body.message;
   if (!message) return;
 
-  const chatId = message.chat.id;
   const fromId = message.from && message.from.id;
 
   if (String(fromId) !== process.env.AUTHORIZED_TELEGRAM_ID) {
     return; // ignorar silenciosamente a cualquiera que no sea la persona autorizada
   }
 
-  if (!message.document) {
-    await tgSendMessage(chatId, 'Mandame el Excel de proveedores como archivo adjunto (no como foto ni texto).');
-    return;
-  }
-
-  try {
-    const buffer = await tgGetFileBuffer(message.document.file_id);
-    const nuevoMap = parsearArchivoNuevo(buffer);
-
-    const owner = process.env.GITHUB_OWNER;
-    const repo = process.env.GITHUB_REPO;
-    const ramas = (process.env.TARGET_BRANCHES || 'main').split(',').map((s) => s.trim()).filter(Boolean);
-
-    const resultados = [];
-    for (const branch of ramas) {
-      resultados.push(await actualizarRama(owner, repo, branch, nuevoMap));
-    }
-
-    const r0 = resultados[0];
-    const nuevos = r0.agregadosNombre + r0.agregadosProv;
-    const corregidos = r0.corregidosNombre + r0.corregidosProv;
-
-    let resumen;
-    if (nuevos + corregidos === 0) {
-      resumen = `ℹ️ Revisé ${nuevoMap.size} proveedores, no había nada nuevo para actualizar.`;
-    } else {
-      resumen =
-        `✅ Proveedores actualizados (leí ${nuevoMap.size} filas):\n` +
-        `• ${nuevos} nuevos\n` +
-        `• ${corregidos} corregidos\n` +
-        `Ramas actualizadas: ${resultados.map((r) => r.branch).join(', ')}`;
-    }
-    await tgSendMessage(chatId, resumen);
-  } catch (err) {
-    await tgSendMessage(chatId, `❌ No pude actualizar: ${err.message}`);
-  }
+  waitUntil(procesarMensaje(message));
 }

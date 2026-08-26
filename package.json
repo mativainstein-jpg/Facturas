@@ -2,7 +2,9 @@
   "name": "bot-proveedores-facturas",
   "version": "1.0.0",
   "private": true,
+  "type": "module",
   "dependencies": {
+    "@vercel/functions": "^3.9.5",
     "xlsx": "^0.18.5"
   }
 }
