@@ -23,6 +23,7 @@ TARGET_BRANCHES = os.environ.get(
 STATE_FILE = 'bot_state/last_update_id.txt'
 MIN_FILAS_VALIDAS = 100
 TG = f'https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}'
+GITHUB_STATUS_API = 'https://www.githubstatus.com/api/v2/status.json'
 
 
 def tg_get(method, **params):
@@ -64,12 +65,27 @@ def descargar_documento(file_id):
     return r.content
 
 
+def chequear_estado_github():
+    """
+    Si algo falla, esto ayuda a distinguir "GitHub tiene un problema" de
+    "el archivo/código tienen un problema real". Corre DENTRO del runner
+    de Actions (con internet normal), no depende de la sandbox de Claude.
+    """
+    try:
+        r = requests.get(GITHUB_STATUS_API, timeout=10)
+        indicator = r.json().get('status', {}).get('indicator', 'unknown')
+        if indicator == 'none':
+            return 'GitHub funciona normal (no parece ser una caída de GitHub).'
+        return f'⚠️ GitHub reporta un problema activo ahora mismo (nivel: {indicator}).'
+    except Exception:
+        return 'No pude confirmar el estado de GitHub.'
+
+
 def parsear_archivo_nuevo(buffer, nombre_archivo):
     # Igual que en las actualizaciones manuales: acepta .xls viejo o .xlsx,
     # busca las columnas por nombre (cuit, nombre, codgasto, codrubro).
     if nombre_archivo.lower().endswith('.xls'):
         import xlrd
-        import io
         wb = xlrd.open_workbook(file_contents=buffer)
         sheet = wb.sheet_by_index(0)
         headers = [str(h).strip().lower() for h in sheet.row_values(0)]
@@ -186,6 +202,39 @@ def actualizar_rama(branch, nuevo):
     return {'branch': branch, 'nuevos': an + ap, 'corregidos': cn + cp}
 
 
+def procesar_mensaje(chat_id, doc):
+    tg_send(chat_id, f'📥 Recibido: {doc.get("file_name", "archivo")}. Lo estoy revisando...')
+
+    try:
+        buffer = descargar_documento(doc['file_id'])
+        nuevo_map = parsear_archivo_nuevo(buffer, doc.get('file_name', 'archivo.xlsx'))
+    except Exception as e:
+        estado_gh = chequear_estado_github()
+        tg_send(chat_id, f'❌ No pude leer el archivo: {e}\n\n{estado_gh}')
+        return
+
+    tg_send(chat_id, f'⏳ En proceso: actualizando {len(nuevo_map)} proveedores en cada rama...')
+
+    try:
+        resultados = [actualizar_rama(b.strip(), nuevo_map) for b in TARGET_BRANCHES]
+    except Exception as e:
+        estado_gh = chequear_estado_github()
+        tg_send(chat_id, f'❌ No pude actualizar: {e}\n\n{estado_gh}')
+        return
+
+    r0 = resultados[0]
+    if r0['nuevos'] + r0['corregidos'] == 0:
+        resumen = f'✅ Hecho. Revisé {len(nuevo_map)} proveedores, no había nada nuevo para actualizar.'
+    else:
+        resumen = (
+            f'✅ Hecho (leí {len(nuevo_map)} filas):\n'
+            f'• {r0["nuevos"]} nuevos\n'
+            f'• {r0["corregidos"]} corregidos\n'
+            f'Ramas: {", ".join(r["branch"] for r in resultados)}'
+        )
+    tg_send(chat_id, resumen)
+
+
 def main():
     sh('git', 'config', 'user.email', 'bot@naiman.local')
     sh('git', 'config', 'user.name', 'Bot Proveedores')
@@ -211,25 +260,7 @@ def main():
         if not doc:
             tg_send(chat_id, 'Mandame el Excel de proveedores como archivo adjunto.')
             continue
-
-        try:
-            buffer = descargar_documento(doc['file_id'])
-            nuevo_map = parsear_archivo_nuevo(buffer, doc.get('file_name', 'archivo.xlsx'))
-
-            resultados = [actualizar_rama(b.strip(), nuevo_map) for b in TARGET_BRANCHES]
-            r0 = resultados[0]
-            if r0['nuevos'] + r0['corregidos'] == 0:
-                resumen = f'ℹ️ Revisé {len(nuevo_map)} proveedores, no había nada nuevo para actualizar.'
-            else:
-                resumen = (
-                    f'✅ Proveedores actualizados (leí {len(nuevo_map)} filas):\n'
-                    f'• {r0["nuevos"]} nuevos\n'
-                    f'• {r0["corregidos"]} corregidos\n'
-                    f'Ramas: {", ".join(r["branch"] for r in resultados)}'
-                )
-            tg_send(chat_id, resumen)
-        except Exception as e:
-            tg_send(chat_id, f'❌ No pude actualizar: {e}')
+        procesar_mensaje(chat_id, doc)
 
     # Volver a main y guardar el último update_id procesado
     sh('git', 'fetch', 'origin', 'main')
