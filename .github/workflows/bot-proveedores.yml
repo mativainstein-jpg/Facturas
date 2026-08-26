@@ -1,0 +1,35 @@
+name: Bot proveedores (Telegram)
+
+# Revisa cada 15 minutos si llegó un Excel de proveedores nuevo por Telegram,
+# y lo aplica solo (sin revisión) a los maestros de Facturas y Bejerman.
+# También se puede disparar al toque desde "Actions" (o Claude lo dispara
+# por API) sin esperar al próximo horario.
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+jobs:
+  revisar-telegram:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Instalar dependencias
+        run: pip install --quiet requests openpyxl xlrd
+
+      - name: Revisar Telegram y actualizar proveedores
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          AUTHORIZED_TELEGRAM_ID: ${{ secrets.AUTHORIZED_TELEGRAM_ID }}
+        run: python .github/scripts/bot_telegram.py
