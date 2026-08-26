@@ -315,33 +315,38 @@ async function procesarMensaje(message) {
   }
 }
 
-export default async function handler(req, res) {
-  if (req.method !== 'POST') {
-    res.status(200).send('OK');
-    return;
-  }
+export default {
+  async fetch(request) {
+    if (request.method !== 'POST') {
+      return new Response('OK');
+    }
 
-  // Confirmar que el pedido viene realmente de Telegram (no de cualquiera
-  // que adivine la URL del webhook).
-  const secretHeader = req.headers['x-telegram-bot-api-secret-token'];
-  if (secretHeader !== process.env.TELEGRAM_SECRET_TOKEN) {
-    res.status(401).send('unauthorized');
-    return;
-  }
+    // Confirmar que el pedido viene realmente de Telegram (no de cualquiera
+    // que adivine la URL del webhook).
+    const secretHeader = request.headers.get('x-telegram-bot-api-secret-token');
+    if (secretHeader !== process.env.TELEGRAM_SECRET_TOKEN) {
+      return new Response('unauthorized', { status: 401 });
+    }
 
-  // Responder rápido a Telegram (si no, reintenta el mismo update) y seguir
-  // procesando después. waitUntil mantiene viva la función hasta completar
-  // el procesamiento crítico, aun después de enviar esta respuesta.
-  res.status(200).send('OK');
+    let body;
+    try {
+      body = await request.json();
+    } catch {
+      return new Response('OK');
+    }
 
-  const message = req.body && req.body.message;
-  if (!message) return;
+    const message = body && body.message;
+    if (!message) return new Response('OK');
 
-  const fromId = message.from && message.from.id;
+    const fromId = message.from && message.from.id;
+    if (String(fromId) !== process.env.AUTHORIZED_TELEGRAM_ID) {
+      return new Response('OK');
+    }
 
-  if (String(fromId) !== process.env.AUTHORIZED_TELEGRAM_ID) {
-    return; // ignorar silenciosamente a cualquiera que no sea la persona autorizada
-  }
-
-  waitUntil(procesarMensaje(message));
-}
+    // Responder rápido a Telegram (si no, reintenta el mismo update) y seguir
+    // procesando después. waitUntil mantiene viva la función hasta completar
+    // el procesamiento crítico, aun después de enviar esta respuesta.
+    waitUntil(procesarMensaje(message));
+    return new Response('OK');
+  },
+};
