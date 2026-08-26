@@ -1,13 +1,13 @@
 name: Bot proveedores (Telegram)
 
-# Revisa cada 15 minutos si llegó un Excel de proveedores nuevo por Telegram,
+# Revisa cada 5 minutos si llegó un Excel de proveedores nuevo por Telegram,
 # y lo aplica solo (sin revisión) a los maestros de Facturas y Bejerman.
 # También se puede disparar al toque desde "Actions" (o Claude lo dispara
 # por API) sin esperar al próximo horario.
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/5 * * * *'
   workflow_dispatch: {}
 
 permissions:
