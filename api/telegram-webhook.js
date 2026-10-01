@@ -14,12 +14,20 @@
 //   TARGET_BRANCHES        - ramas a actualizar, separadas por coma
 //                            (ej. "main,claude/invoice-app-setup-ss5uwf,
 //                            claude/bejerman-invoice-reader-do4scq")
+//
+// Opcionales (el programa de Bejerman vive en OTRO repo y solo usa los
+// nombres de proveedores, o sea cuit_nombre.xlsx):
+//   BEJERMAN_REPO          - repo del programa de Bejerman (por defecto
+//                            "facturas-bejerman"; vacío = no actualizarlo)
+//   BEJERMAN_BRANCH        - rama de ese repo (por defecto "main")
 
 import * as XLSX from 'xlsx';
 import { waitUntil } from '@vercel/functions';
 
 const GITHUB_API = 'https://api.github.com';
 const MIN_FILAS_VALIDAS = 100; // debajo de esto, se sospecha archivo incorrecto
+const BEJERMAN_REPO = process.env.BEJERMAN_REPO ?? 'facturas-bejerman';
+const BEJERMAN_BRANCH = process.env.BEJERMAN_BRANCH || 'main';
 
 // ---------------------------------------------------------------------------
 // Parseo del archivo que manda el administrativo
@@ -163,16 +171,19 @@ function serializarXlsx(rows, sheetName) {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
 }
 
-async function actualizarRama(owner, repo, branch, nuevoMap) {
+async function actualizarRama(owner, repo, branch, nuevoMap, soloNombres = false) {
   const { rows: rowsNombres, sheetName: sheetNombres } = await leerXlsxDeRama(
     owner, repo, branch, 'cuit_nombre.xlsx'
   );
-  const { rows: rowsProv, sheetName: sheetProv } = await leerXlsxDeRama(
-    owner, repo, branch, 'proveedores.xlsx'
-  );
+  // El programa de Bejerman no usa gasto/rubro: ahí solo se actualizan nombres.
+  const { rows: rowsProv, sheetName: sheetProv } = soloNombres
+    ? { rows: null, sheetName: null }
+    : await leerXlsxDeRama(owner, repo, branch, 'proveedores.xlsx');
 
   const rNombres = actualizarNombres(rowsNombres, nuevoMap);
-  const rProv = actualizarProveedores(rowsProv, nuevoMap);
+  const rProv = soloNombres
+    ? { agregadosProv: 0, corregidosProv: 0 }
+    : actualizarProveedores(rowsProv, nuevoMap);
   const totalCambios =
     rNombres.agregadosNombre + rNombres.corregidosNombre +
     rProv.agregadosProv + rProv.corregidosProv;
@@ -184,7 +195,7 @@ async function actualizarRama(owner, repo, branch, nuevoMap) {
   }
 
   const outNombres = serializarXlsx(rowsNombres, sheetNombres);
-  const outProv = serializarXlsx(rowsProv, sheetProv);
+  const outProv = soloNombres ? null : serializarXlsx(rowsProv, sheetProv);
 
   const ref = await ghFetch(`/repos/${owner}/${repo}/git/ref/heads/${branch}`);
   const latestCommitSha = ref.object.sha;
@@ -195,20 +206,20 @@ async function actualizarRama(owner, repo, branch, nuevoMap) {
     method: 'POST',
     body: JSON.stringify({ content: outNombres.toString('base64'), encoding: 'base64' }),
   });
-  const blobProv = await ghFetch(`/repos/${owner}/${repo}/git/blobs`, {
-    method: 'POST',
-    body: JSON.stringify({ content: outProv.toString('base64'), encoding: 'base64' }),
-  });
+  const archivos = [
+    { path: 'cuit_nombre.xlsx', mode: '100644', type: 'blob', sha: blobNombres.sha },
+  ];
+  if (!soloNombres) {
+    const blobProv = await ghFetch(`/repos/${owner}/${repo}/git/blobs`, {
+      method: 'POST',
+      body: JSON.stringify({ content: outProv.toString('base64'), encoding: 'base64' }),
+    });
+    archivos.push({ path: 'proveedores.xlsx', mode: '100644', type: 'blob', sha: blobProv.sha });
+  }
 
   const newTree = await ghFetch(`/repos/${owner}/${repo}/git/trees`, {
     method: 'POST',
-    body: JSON.stringify({
-      base_tree: baseTreeSha,
-      tree: [
-        { path: 'cuit_nombre.xlsx', mode: '100644', type: 'blob', sha: blobNombres.sha },
-        { path: 'proveedores.xlsx', mode: '100644', type: 'blob', sha: blobProv.sha },
-      ],
-    }),
+    body: JSON.stringify({ base_tree: baseTreeSha, tree: archivos }),
   });
 
   const mensaje =
@@ -296,10 +307,28 @@ async function procesarMensaje(message) {
     const nuevos = r0.agregadosNombre + r0.agregadosProv;
     const corregidos = r0.corregidosNombre + r0.corregidosProv;
 
+    // Programa de Bejerman: va DESPUÉS de Facturas y aislado, para que un
+    // problema acá (ej. el token sin acceso a ese repo) nunca afecte a Facturas.
+    let lineaBejerman = '';
+    if (BEJERMAN_REPO) {
+      try {
+        const rb = await actualizarRama(owner, BEJERMAN_REPO, BEJERMAN_BRANCH, nuevoMap, true);
+        lineaBejerman = rb.sinCambios
+          ? '\nBejerman: sin cambios.'
+          : `\nBejerman: ${rb.agregadosNombre} nombres nuevos, ${rb.corregidosNombre} corregidos.`;
+      } catch (err) {
+        const motivo = /-> (403|404):/.test(err.message)
+          ? 'el token de GitHub del bot no parece tener acceso al repo de Bejerman'
+          : err.message.slice(0, 150);
+        lineaBejerman = `\n⚠ Bejerman: no pude actualizarlo (${motivo}). Facturas sí se actualizó.`;
+      }
+    }
+
     if (nuevos + corregidos === 0) {
       await tgSendMessage(
         chatId,
-        `✅ Hecho. Revisé ${nuevoMap.size} proveedores, no había nada nuevo para actualizar.`
+        `✅ Hecho. Revisé ${nuevoMap.size} proveedores, no había nada nuevo para actualizar.` +
+          lineaBejerman
       );
     } else {
       await tgSendMessage(
@@ -307,7 +336,8 @@ async function procesarMensaje(message) {
         `✅ Hecho (leí ${nuevoMap.size} filas):\n` +
           `• ${nuevos} nuevos\n` +
           `• ${corregidos} corregidos\n` +
-          `Ramas: ${resultados.map((r) => r.branch).join(', ')}`
+          `Ramas: ${resultados.map((r) => r.branch).join(', ')}` +
+          lineaBejerman
       );
     }
   } catch (err) {

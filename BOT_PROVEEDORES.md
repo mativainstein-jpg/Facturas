@@ -18,7 +18,12 @@ Telegram, el webhook (`api/telegram-webhook.js`):
    cambiaron.
 4. Sube el cambio directo (commit atómico vía Git Data API) a cada rama —
    sin pull request, sin revisión.
-5. Responde por Telegram con un resumen (o un error, sin tocar nada, si el
+5. Después actualiza también el programa de **Bejerman** (repo
+   `facturas-bejerman`), pero **solo `cuit_nombre.xlsx`** (ese programa no
+   usa gasto ni rubro). Va aparte y al final: si falla (ej. el token no
+   tiene acceso a ese repo), Facturas igual queda actualizado y el aviso
+   por Telegram lo dice.
+6. Responde por Telegram con un resumen (o un error, sin tocar nada, si el
    archivo no tiene la forma esperada).
 
 ## Cómo desplegarlo en Vercel (una sola vez)
@@ -41,6 +46,12 @@ Telegram, el webhook (`api/telegram-webhook.js`):
    | `GITHUB_OWNER` | `mativainstein-jpg` |
    | `GITHUB_REPO` | `Facturas` |
    | `TARGET_BRANCHES` | `main,claude/invoice-app-setup-ss5uwf,claude/bejerman-invoice-reader-do4scq` |
+| `BEJERMAN_REPO` | *(opcional)* repo del programa de Bejerman. Por defecto `facturas-bejerman`; vacío = no actualizarlo |
+| `BEJERMAN_BRANCH` | *(opcional)* rama de ese repo. Por defecto `main` |
+
+El `GITHUB_TOKEN` tiene que tener permiso de escritura también sobre el repo
+de Bejerman (es privado). Si no lo tiene, el bot avisa por Telegram y sigue
+actualizando Facturas con normalidad.
 
 5. Deploy. Vercel da una URL (algo como
    `https://bot-proveedores-facturas.vercel.app`).
