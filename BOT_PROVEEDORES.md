@@ -41,6 +41,9 @@ cambiar esa regla.
 
 ## Si algo falla
 
+- Escribirle `/estado` al bot por Telegram chequea al instante, sin cambiar
+  nada, si el token de GitHub puede leer y escribir en Facturas y en
+  Bejerman, y cuándo vence el token.
 - Telegram avisa con ❌ (no se actualizó nada) o con ⚠ (se actualizó
   Facturas pero no Bejerman) y dice el motivo.
 - Aviso ⚠ de Bejerman: el token de GitHub del bot (`GITHUB_TOKEN`, cargado en
