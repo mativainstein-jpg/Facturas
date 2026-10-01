@@ -1,49 +1,60 @@
 # Bot de Telegram — actualización automática de proveedores
 
-## Qué hace
+## Cómo funciona hoy (lo que realmente está en uso)
 
-Cuando la persona autorizada le manda el Excel de proveedores al bot de
-Telegram (@Proveedoresadminbot), un workflow de **GitHub Actions**
-(`.github/workflows/bot-proveedores.yml`) que corre cada 15 minutos:
+El bot (@Proveedoresadminbot) corre en **Vercel** (proyecto `facturas`,
+equipo Naiman). Su código **no está en `main`**: vive en la rama
+**`bot-proveedores`** de este repositorio (carpeta `api/`). El
+`BOT_PROVEEDORES.md` de esa rama tiene los detalles de configuración
+(variables de entorno, cómo desplegarlo).
 
-1. Revisa si hay mensajes nuevos del bot (vía `getUpdates`).
-2. Valida que el mensaje sea de la persona autorizada (ID numérico).
-3. Descarga el archivo adjunto y lo parsea (columnas `cuit`, `nombre`,
-   `codgasto`, `codrubro` — no importa el orden ni si hay otras columnas).
-4. Compara contra `cuit_nombre.xlsx` y `proveedores.xlsx` de cada rama
-   configurada (Facturas y Bejerman): agrega los CUIT nuevos, corrige
-   nombre/gasto/rubro si cambiaron.
-5. Sube el cambio directo a cada rama — sin pull request, sin revisión.
-6. Responde por Telegram con un resumen (o un error, sin tocar nada, si el
-   archivo no tiene la forma esperada).
+Telegram le avisa por *webhook* apenas llega un mensaje, así que no hay
+demora. Cuando la persona autorizada le manda el Excel de proveedores
+(columnas `cuit`, `nombre`, `codgasto`, `codrubro`), el bot:
 
-No necesita ningún servidor externo (se dejó de usar Vercel: el entorno
-donde corre Claude no tiene salida de red hacia servicios de terceros como
-Vercel o Telegram, así que se resolvió con GitHub Actions, que sí corre con
-acceso normal a internet).
+1. Valida que el mensaje venga de Telegram y de la persona autorizada
+   (ID numérico); ignora en silencio a cualquier otra.
+2. Descarga el archivo y lo compara con los maestros: agrega los CUIT nuevos
+   y corrige nombre / gasto / rubro si cambiaron.
+3. Guarda el cambio directo, sin pull request y sin revisión, en:
+   - **Facturas**: `cuit_nombre.xlsx` y `proveedores.xlsx` en `main` y en las
+     ramas `claude/invoice-app-setup-ss5uwf` y
+     `claude/bejerman-invoice-reader-do4scq`.
+   - **Bejerman** (repo `facturas-bejerman`): solo `cuit_nombre.xlsx`, porque
+     ese programa no usa gasto ni rubro. Se hace al final y por separado: si
+     falla, Facturas igual queda actualizado.
+4. Responde por Telegram con un resumen (o con el error, sin tocar nada, si el
+   archivo no tiene la forma esperada o tiene muy pocas filas válidas).
 
-## Configuración (una sola vez)
+Los programas de escritorio se actualizan solos (`actualizar.py`) la próxima
+vez que se abren, así que bajan los maestros nuevos sin hacer nada.
 
-Cargar 2 secrets en GitHub: **Settings del repo → Secrets and variables →
-Actions → New repository secret**:
+## Por qué Vercel solo publica la rama `bot-proveedores`
 
-| Secret | Valor |
-|---|---|
-| `TELEGRAM_BOT_TOKEN` | El token del bot (de @BotFather) |
-| `AUTHORIZED_TELEGRAM_ID` | El ID numérico de Telegram autorizado a mandar el archivo |
+Vercel está conectado a todo el repositorio, y cada vez que el bot guarda
+proveedores en `main` o en las ramas `claude/...` intentaba "publicarlas".
+Esas ramas son el programa de escritorio (no una web), así que fallaba con
+"Preview deployment failed" y mandaba un mail de error cada vez. Se
+configuró en Vercel (Settings → Git → Ignored Build Step) que solo construya
+`bot-proveedores`. Si alguna vez hace falta publicar otra rama, hay que
+cambiar esa regla.
 
-Nada más. No hace falta cuenta de Vercel, ni desplegar nada a mano.
+## Si algo falla
 
-## Frecuencia
+- Telegram avisa con ❌ (no se actualizó nada) o con ⚠ (se actualizó
+  Facturas pero no Bejerman) y dice el motivo.
+- Aviso ⚠ de Bejerman: el token de GitHub del bot (`GITHUB_TOKEN`, cargado en
+  Vercel) tiene que tener permiso de escritura también sobre el repo
+  `facturas-bejerman`, que es privado.
+- Para dejar de actualizar Bejerman sin tocar código: poner la variable
+  `BEJERMAN_REPO` vacía en Vercel y volver a desplegar.
 
-Corre cada 15 minutos. Si se necesita que procese al instante (sin esperar),
-se puede disparar manualmente desde la pestaña **Actions** del repo (botón
-"Run workflow" en "Bot proveedores (Telegram)"), o pedírselo a Claude.
+## Versión anterior (desactivada, no usar)
 
-## Seguridad
-
-- Ignora en silencio cualquier mensaje que no venga del ID de Telegram
-  autorizado.
-- Si el archivo no tiene las columnas esperadas, o tiene muy pocas filas
-  válidas, no toca ningún repositorio — solo avisa el error por Telegram.
-- Los secrets nunca quedan expuestos en el código ni en los logs.
+`.github/workflows/bot-proveedores.yml` y `.github/scripts/bot_telegram.py`
+son una versión anterior del bot que corría en GitHub Actions (revisando
+Telegram cada 1 hora). Quedó **desactivada manualmente** el 26/08/2026 y se
+conserva solo como respaldo. No hay que volver a activarla mientras el
+webhook de Vercel esté en uso: Telegram no permite usar webhook y revisión
+periódica a la vez, y fallaría. Además, esa versión no actualiza el
+programa de Bejerman. `bot_state/last_update_id.txt` pertenece a esa versión.
