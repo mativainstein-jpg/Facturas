@@ -266,14 +266,122 @@ async function tgGetFileBuffer(fileId) {
 }
 
 // ---------------------------------------------------------------------------
+// Comando /estado: chequea los permisos del token sin cambiar nada
+// ---------------------------------------------------------------------------
+
+async function ghRaw(path, opts = {}) {
+  return fetch(`${GITHUB_API}${path}`, {
+    ...opts,
+    headers: {
+      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+}
+
+async function revisarRepo(owner, repo, ramas) {
+  const r = { lee: false, escribe: false, ramasFaltantes: [], vence: null, motivo: null };
+  try {
+    const info = await ghRaw(`/repos/${owner}/${repo}`);
+    r.vence = info.headers.get('github-authentication-token-expiration');
+    if (!info.ok) {
+      r.motivo = info.status === 401
+        ? 'el token de GitHub es inválido o está vencido'
+        : 'el token no tiene acceso a este repo';
+      return r;
+    }
+    r.lee = true;
+    for (const rama of ramas) {
+      const rr = await ghRaw(`/repos/${owner}/${repo}/git/ref/heads/${rama}`);
+      if (!rr.ok) r.ramasFaltantes.push(rama);
+    }
+    // Un objeto de prueba suelto (no queda en ninguna rama ni en el historial):
+    // es la forma de comprobar el permiso de escritura sin cambiar nada.
+    const w = await ghRaw(`/repos/${owner}/${repo}/git/blobs`, {
+      method: 'POST',
+      body: JSON.stringify({ content: 'estado', encoding: 'utf-8' }),
+    });
+    r.escribe = w.ok;
+    if (!w.ok) {
+      r.motivo = 'el token puede leer pero NO escribir (le falta el permiso "Contents: Read and write")';
+    }
+  } catch (err) {
+    r.motivo = `error inesperado: ${err.message.slice(0, 100)}`;
+  }
+  return r;
+}
+
+function lineaEstado(nombre, r) {
+  if (r.lee && r.escribe && r.ramasFaltantes.length === 0) {
+    return `✅ ${nombre}: puede leer y escribir.`;
+  }
+  const partes = [];
+  if (r.motivo) partes.push(r.motivo);
+  if (r.ramasFaltantes.length) partes.push(`no encuentro estas ramas: ${r.ramasFaltantes.join(', ')}`);
+  return `❌ ${nombre}: ${partes.join('; ')}.`;
+}
+
+function textoVencimiento(vence) {
+  if (!vence) {
+    return 'Token de GitHub: GitHub no informa fecha de vencimiento (puede ser que no venza).';
+  }
+  const fecha = new Date(vence.replace(' UTC', 'Z').replace(' ', 'T'));
+  if (Number.isNaN(fecha.getTime())) return `Token de GitHub: vence ${vence}.`;
+  const dd = String(fecha.getUTCDate()).padStart(2, '0');
+  const mm = String(fecha.getUTCMonth() + 1).padStart(2, '0');
+  const f = `${dd}/${mm}/${fecha.getUTCFullYear()}`;
+  const dias = Math.ceil((fecha.getTime() - Date.now()) / 86400000);
+  if (dias < 0) return `🚨 Token de GitHub: VENCIDO el ${f}. Hay que renovarlo.`;
+  if (dias <= 14) return `⚠ Token de GitHub: vence en ${dias} día(s), el ${f}. Hay que renovarlo.`;
+  return `Token de GitHub: vence el ${f} (quedan ${dias} días).`;
+}
+
+async function responderEstado(chatId) {
+  const owner = process.env.GITHUB_OWNER;
+  const repo = process.env.GITHUB_REPO;
+  const ramas = (process.env.TARGET_BRANCHES || 'main')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+
+  const lineas = ['🔎 Estado del bot'];
+  const rF = await revisarRepo(owner, repo, ramas);
+  lineas.push(lineaEstado(`Facturas (${ramas.length} ramas)`, rF));
+  let vence = rF.vence;
+  if (BEJERMAN_REPO) {
+    const rB = await revisarRepo(owner, BEJERMAN_REPO, [BEJERMAN_BRANCH]);
+    lineas.push(lineaEstado('Bejerman', rB));
+    vence = vence || rB.vence;
+  } else {
+    lineas.push('Bejerman: desactivado (BEJERMAN_REPO vacío).');
+  }
+  lineas.push(textoVencimiento(vence));
+  await tgSendMessage(chatId, lineas.join('\n'));
+}
+
+// ---------------------------------------------------------------------------
 // Handler principal
 // ---------------------------------------------------------------------------
 
 async function procesarMensaje(message) {
   const chatId = message.chat.id;
 
+  if (/^\/estado(@\w+)?$/i.test((message.text || '').trim())) {
+    try {
+      await responderEstado(chatId);
+    } catch (err) {
+      await tgSendMessage(chatId, `❌ No pude revisar el estado: ${err.message.slice(0, 150)}`);
+    }
+    return;
+  }
+
   if (!message.document) {
-    await tgSendMessage(chatId, 'Mandame el Excel de proveedores como archivo adjunto (no como foto ni texto).');
+    await tgSendMessage(
+      chatId,
+      'Mandame el Excel de proveedores como archivo adjunto (no como foto ni texto). ' +
+        'Para chequear que todo funcione, escribime /estado.'
+    );
     return;
   }
 

@@ -66,3 +66,17 @@ actualizando Facturas con normalidad.
   Telegram mandando pedidos directo a la URL del webhook.
 - Si el archivo no tiene las columnas esperadas, o tiene muy pocas filas
   válidas, no toca el repositorio — solo avisa el error por Telegram.
+
+## Comando /estado
+
+Escribiéndole `/estado` al bot por Telegram (solo responde a la persona
+autorizada), chequea sin cambiar nada del repositorio:
+
+- Si el token de GitHub puede **leer y escribir** en Facturas y en Bejerman.
+- Si existen las ramas configuradas en `TARGET_BRANCHES`.
+- Cuándo **vence** el token (avisa si faltan 14 días o menos, o si ya venció).
+
+Para comprobar el permiso de escritura crea un objeto de prueba suelto en
+GitHub (no queda en ninguna rama ni en el historial, no genera commits ni
+dispara nada). Sirve para confirmar, por ejemplo, que el token tiene acceso
+al repo privado de Bejerman antes de mandar un Excel.
