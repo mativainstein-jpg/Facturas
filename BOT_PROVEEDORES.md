@@ -58,14 +58,6 @@ actualizando Facturas con normalidad.
 6. Pasarle esa URL a Claude — falta un último paso (registrar la URL en
    Telegram) que Claude hace directo por API, sin necesitar acceso a Vercel.
 
-## Comando /estado
-
-Escribiéndole `/estado` al bot (solo responde a la persona autorizada), chequea
-sin cambiar nada: si el token de GitHub puede **leer y escribir** en Facturas
-y en Bejerman, si existen las ramas configuradas, y cuándo **vence** el token
-(avisa si faltan 14 días o menos). El permiso de escritura se prueba creando
-un objeto suelto de GitHub que no queda en ninguna rama ni en el historial.
-
 ## Seguridad
 
 - El bot ignora en silencio cualquier mensaje que no venga del ID de
