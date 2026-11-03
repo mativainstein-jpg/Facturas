@@ -166,7 +166,7 @@ def test_numeros():
     chequear('100.000', P._num('100.000'), 100000.0)
 
 
-def _test_fila_excel_pendiente():
+def test_fila_excel():
     print('\nFila del Excel')
     try:
         import excel_manager as E
@@ -204,7 +204,7 @@ if __name__ == '__main__':
     test_copias_y_moneda()
     test_clave()
     test_numeros()
-    # test_fila_excel(): se activa cuando se integre excel_manager.py
+    test_fila_excel()
     print()
     if FALLAS:
         print(f'FALLARON {len(FALLAS)} prueba(s): {", ".join(FALLAS)}')

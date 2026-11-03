@@ -1,27 +1,7 @@
 import io
 import re
 import pdfplumber
-from config import CUIT_NAIMAN, NOMBRE_NAIMAN, COLS, PUNTO_VENTA_FIJO
-
-
-# Tipo de comprobante según el código AFIP que trae la factura ("COD. 01").
-# Factura de Crédito Electrónica MiPyME (201-213) se carga igual que la común.
-# Un código que no está en esta tabla queda en VERIFICAR (no se adivina).
-TIPOS_AFIP = {
-    1: 'FCA',   2: 'NDA',   3: 'NCA',     # Factura / Nota de Débito / Nota de Crédito A
-    201: 'FCA', 202: 'NDA', 203: 'NCA',   # ídem FCE MiPyME A
-    11: 'FCC',  12: 'NDC',  13: 'NCC',    # Factura / Nota de Débito / Nota de Crédito C
-    211: 'FCC', 212: 'NDC', 213: 'NCC',   # ídem FCE MiPyME C
-}
-
-
-def familia(tipo):
-    """'A' (discrimina IVA), 'C' (monotributista) o None si no se sabe."""
-    if tipo in ('FCA', 'NDA', 'NCA'):
-        return 'A'
-    if tipo in ('FCC', 'NDC', 'NCC'):
-        return 'C'
-    return None
+from config import CUIT_NAIMAN, NOMBRE_NAIMAN, COLS, PUNTO_VENTA_FIJO, TIPOS_AFIP, familia
 
 
 # ---------------------------------------------------------------------------
