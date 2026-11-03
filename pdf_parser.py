@@ -60,7 +60,8 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         # Fallback: otros generadores (ej. Contabilium) no separan "Punto de
         # Venta" y "Comp. Nro" en dos campos, traen todo junto como
         # "Nº: 0008-00022470" o "NUMERO:0013 - 00002765".
-        m = re.search(r'(?:NUMERO|N[°ºo]\.?|Factura\s*de\s*venta)\s*:?\s*0*(\d+)\s*-\s*0*(\d+)', texto, re.I)
+        # También "Factura: 5008-00085755" (YPF GAS).
+        m = re.search(r'(?:NUMERO|N[°ºo]\.?|Factura\s*de\s*venta|Factura\s*:)\s*:?\s*0*(\d+)\s*-\s*0*(\d+)', texto, re.I)
         if m:
             if not punto_venta_factura:
                 punto_venta_factura = m.group(1)
@@ -75,7 +76,8 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     # Acepta también d/m/aaaa (algunos emisores no completan con ceros) y
     # espacios sueltos alrededor de las barras (ej. "1/ 7/2026", texto mal
     # justificado en el PDF original).
-    _RE_FECHA = r'(\d{1,2})\s*/\s*(\d{1,2})\s*/\s*(\d{4})'
+    # También con puntos: "Fecha: 19.05.2026" (YPF GAS).
+    _RE_FECHA = r'(\d{1,2})\s*[/.]\s*(\d{1,2})\s*[/.]\s*(\d{4})'
     m = re.search(r'Fecha\s*de\s*Emisi[oó]n:\s*' + _RE_FECHA, texto, re.I)
     if not m:
         # Fallback: otros generadores usan "Fecha:" a secas (sin "de Emisión").
@@ -105,11 +107,12 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     # no agarrar de "monto" un punto suelto de alguna abreviatura en el
     # medio (ej. "Bs." en "IVA 21% Venta de Bs. 181.080,93").
     _HASTA_MONTO = r'[^\d\n]{0,30}?\$?\s*(\d[\d.,]*)'
-    iva25  = _campo(texto, _IVA + r'2[.,]5%' + _HASTA_MONTO)
-    iva5   = _campo(texto, _IVA + r'5%' + _HASTA_MONTO)
-    iva105 = _campo(texto, _IVA + r'10[.,]5%' + _HASTA_MONTO)
-    iva21  = _campo(texto, _IVA + r'21%' + _HASTA_MONTO)
-    iva27  = _campo(texto, _IVA + r'27%' + _HASTA_MONTO)
+    # La alícuota tolera ceros de más y espacio antes del % ("Iva 10,50 %").
+    iva25  = _campo(texto, _IVA + r'2[.,]50*\s*%' + _HASTA_MONTO)
+    iva5   = _campo(texto, _IVA + r'5(?:[.,]0+)?\s*%' + _HASTA_MONTO)
+    iva105 = _campo(texto, _IVA + r'10[.,]50*\s*%' + _HASTA_MONTO)
+    iva21  = _campo(texto, _IVA + r'21(?:[.,]0+)?\s*%' + _HASTA_MONTO)
+    iva27  = _campo(texto, _IVA + r'27(?:[.,]0+)?\s*%' + _HASTA_MONTO)
     # AFIP imprime "Importe Otros Tributos:" (sin "de"); otros generadores
     # "Importe de Otros Tributos:". Se usa en el control de suma del total.
     otros  = _campo(texto, r'Importe\s*(?:de\s*)?Otros\s*Tributos:\s*\$?\s*([\d.,]+)')
@@ -119,7 +122,8 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         # Fallback: otros generadores usan "TOTAL:" a secas, o "MONTO TOTAL"
         # sin dos puntos. \b evita que "TOTAL:" "matchee" dentro de "SUBTOTAL:".
         total = _campo(texto, r'\bTOTAL:\s*\$?\s*([\d.,]+)') \
-             or _campo(texto, r'MONTO\s*TOTAL\s*\$?\s*([\d.,]+)')
+             or _campo(texto, r'MONTO\s*TOTAL\s*\$?\s*([\d.,]+)') \
+             or _campo(texto, r'(?m)^\s*Total\s*\$?\s*([\d.,]+)\s*$')   # "Total $ 2.064.268,71" (YPF GAS)
     if not total and fam == 'C':
         total = _subtotal_linea(linea)
 
@@ -339,7 +343,7 @@ def _extraer_de_tablas(pdf_bytes):
                             continue
                         cantidad = m.group(1)
                         unidad   = _normalizar_unidad(m.group(2))
-                        precio, subtotal = _precio_y_subtotal(row_str[m.end():])
+                        precio, subtotal = _precio_y_subtotal(_resto_numerico(cells, m.end()))
                         return {
                             'descripcion':     '',
                             'cantidad':        cantidad,
@@ -350,6 +354,27 @@ def _extraer_de_tablas(pdf_bytes):
     except Exception:
         pass
     return None
+
+
+_CELDA_NUMERICA = re.compile(r'\$?\s*\d[\d.,]*\s*%?')
+
+
+def _resto_numerico(cells, fin_unidad):
+    """
+    Lo que sigue a "cantidad unidad" en la fila de la tabla, tomando de las
+    celdas siguientes solo las que son un número: la descripción puede traer
+    números propios (ej. YPF GAS: "EQUIVALEN A 2.099,748 LITROS") que no son
+    el precio.
+    """
+    pos = 0
+    for k, celda in enumerate(cells):
+        if fin_unidad <= pos + len(celda):
+            break
+        pos += len(celda) + 1   # +1 por el espacio del ' '.join
+    else:
+        return ''
+    numericas = [c for c in cells[k + 1:] if _CELDA_NUMERICA.fullmatch(c)]
+    return ' '.join([cells[k][fin_unidad - pos:]] + numericas)
 
 
 def _precio_y_subtotal(resto):
