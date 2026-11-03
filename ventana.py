@@ -4,11 +4,12 @@ import sys
 from pathlib import Path
 
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFont
 from PyQt5.QtWidgets import (
-    QFileDialog, QHBoxLayout, QLabel, QMainWindow, QMessageBox, QProgressBar,
-    QPushButton, QTextEdit, QVBoxLayout, QWidget,
+    QFileDialog, QFrame, QHBoxLayout, QLabel, QMainWindow, QMessageBox,
+    QProgressBar, QPushButton, QTextEdit, QVBoxLayout, QWidget,
 )
+
+import estilo
 
 from config import EXCEL_FACTURAS, EXCEL_LOCALES
 from procesador import (
@@ -40,93 +41,130 @@ class VentanaFacturas(QMainWindow):
         if version:
             titulo += f' — versión {version}'
         self.setWindowTitle(titulo)
-        self.setGeometry(100, 100, 660, 560)
+        self.setGeometry(100, 80, 780, 660)
+        self.setMinimumSize(640, 560)
         self.worker = None
         self._procesando = False
         crear_archivo_locales_si_falta()   # deja listo el Excel de proveedores locales
         self._init_ui()
-        self._log('Listo para trabajar. Empezá con "Insertar Factura".')
+        self._log('Listo para trabajar. Empezá con "Insertar facturas".')
 
     def _init_ui(self):
-        widget = QWidget()
-        layout = QVBoxLayout()
-        layout.setSpacing(10)
-        layout.setContentsMargins(16, 16, 16, 16)
-        widget.setLayout(layout)
-        self.setCentralWidget(widget)
+        fondo = QWidget()
+        fondo.setObjectName('fondo')
+        layout = QVBoxLayout(fondo)
+        layout.setSpacing(16)
+        layout.setContentsMargins(28, 24, 28, 24)
+        self.setCentralWidget(fondo)
 
+        # ── Encabezado ────────────────────────────────────────────────
         titulo = QLabel('Procesador de Facturas')
-        titulo.setFont(QFont('Arial', 13, QFont.Bold))
-        titulo.setAlignment(Qt.AlignCenter)
+        titulo.setObjectName('titulo')
         layout.addWidget(titulo)
+        subtitulo = 'Pasa las facturas de AFIP en PDF al Excel'
+        version = _version_app()
+        if version:
+            subtitulo += f'   ·   versión {version}'
+        lbl_sub = QLabel(subtitulo)
+        lbl_sub.setObjectName('subtitulo')
+        layout.addWidget(lbl_sub)
 
-        # Instrucciones simples, siempre visibles arriba
-        ayuda = QLabel(
-            'Paso 1: apretá "Insertar Factura" y elegí uno o varios PDF.\n'
-            'Paso 2: revisá los datos de cada factura y confirmá.\n'
-            'Paso 3: se guardan en el Excel. Las celdas en ROJO hay que revisarlas a mano.'
-        )
-        ayuda.setStyleSheet(
-            'background: #eef4ff; color: #244; padding: 8px; border-radius: 4px;'
-        )
-        ayuda.setWordWrap(True)
-        layout.addWidget(ayuda)
+        # ── Los 3 pasos ───────────────────────────────────────────────
+        pasos = QHBoxLayout()
+        pasos.setSpacing(12)
+        for numero, texto in (
+            ('1', 'Apretá "Insertar facturas" y elegí uno o varios PDF.'),
+            ('2', 'Revisá los datos de cada factura y confirmá.'),
+            ('3', 'Se guardan en el Excel. Las celdas en ROJO hay que revisarlas a mano.'),
+        ):
+            pasos.addWidget(self._tarjeta_paso(numero, texto), 1)
+        layout.addLayout(pasos)
 
-        self.log_text = QTextEdit()
-        self.log_text.setReadOnly(True)
-        self.log_text.setFont(QFont('Courier New', 9))
-        layout.addWidget(self.log_text)
-
-        self.barra = QProgressBar()
-        self.barra.setVisible(False)
-        layout.addWidget(self.barra)
-
-        self.btn_cancelar = QPushButton('✕  Cancelar')
-        self.btn_cancelar.setVisible(False)
-        self.btn_cancelar.clicked.connect(self._cancelar_worker)
-        layout.addWidget(self.btn_cancelar)
-
-        botones = QHBoxLayout()
-
-        self.btn_gmail = QPushButton('📧  Buscar en Gmail')
-        self.btn_gmail.setMinimumHeight(38)
-        self.btn_gmail.setFont(QFont('Arial', 10))
-        self.btn_gmail.setToolTip(
-            'Busca PDFs nuevos en Gmail, los procesa y etiqueta los ya procesados'
-        )
-        self.btn_gmail.clicked.connect(self._procesar_gmail)
-        botones.addWidget(self.btn_gmail)
-
-        self.btn_local = QPushButton('📄  Insertar Factura')
-        self.btn_local.setMinimumHeight(38)
-        self.btn_local.setFont(QFont('Arial', 10))
+        # ── Acciones ──────────────────────────────────────────────────
+        self.btn_local = QPushButton('📄   Insertar facturas')
+        estilo.marcar(self.btn_local, variante='primario')
+        self.btn_local.setMinimumHeight(50)
+        self.btn_local.setFont(estilo.fuente(12, negrita=True))
+        self.btn_local.setCursor(Qt.PointingHandCursor)
         self.btn_local.setToolTip('Seleccioná uno o más PDFs locales para procesar')
         self.btn_local.clicked.connect(self._insertar_local)
-        botones.addWidget(self.btn_local)
+        layout.addWidget(self.btn_local)
 
-        self.btn_excel = QPushButton('📊  Abrir Excel')
-        self.btn_excel.setMinimumHeight(38)
-        self.btn_excel.setFont(QFont('Arial', 10))
+        secundarios = QHBoxLayout()
+        secundarios.setSpacing(10)
+
+        self.btn_excel = QPushButton('📊   Abrir Excel')
+        self.btn_excel.setMinimumHeight(40)
         self.btn_excel.clicked.connect(self._abrir_excel)
-        botones.addWidget(self.btn_excel)
+        secundarios.addWidget(self.btn_excel, 1)
 
-        self.btn_proveedores = QPushButton('➕  Agregar proveedores')
-        self.btn_proveedores.setMinimumHeight(38)
-        self.btn_proveedores.setFont(QFont('Arial', 10))
+        self.btn_proveedores = QPushButton('➕   Agregar proveedores')
+        self.btn_proveedores.setMinimumHeight(40)
         self.btn_proveedores.setToolTip(
             'Abre el Excel donde podés cargar proveedores nuevos (CUIT, nombre, '
             'código de gasto y de rubro). Se usan en esta PC al procesar.'
         )
         self.btn_proveedores.clicked.connect(self._abrir_proveedores)
-        botones.addWidget(self.btn_proveedores)
+        secundarios.addWidget(self.btn_proveedores, 1)
 
-        btn_salir = QPushButton('Salir')
-        btn_salir.setMinimumHeight(38)
-        btn_salir.clicked.connect(self.close)
-        botones.addWidget(btn_salir)
+        self.btn_gmail = QPushButton('📧  Buscar en Gmail')
+        estilo.marcar(self.btn_gmail, variante='enlace')
+        self.btn_gmail.setMinimumHeight(40)
+        self.btn_gmail.setToolTip(
+            'Busca PDFs nuevos en Gmail, los procesa y etiqueta los ya procesados'
+        )
+        self.btn_gmail.clicked.connect(self._procesar_gmail)
+        secundarios.addWidget(self.btn_gmail)
 
-        layout.addLayout(botones)
+        for b in (self.btn_excel, self.btn_proveedores, self.btn_gmail):
+            b.setCursor(Qt.PointingHandCursor)
+        layout.addLayout(secundarios)
+
+        # ── Actividad (registro + progreso) ───────────────────────────
+        actividad = estilo.tarjeta(QFrame())
+        act_lo = QVBoxLayout(actividad)
+        act_lo.setContentsMargins(16, 14, 16, 14)
+        act_lo.setSpacing(10)
+
+        lbl_act = QLabel('ACTIVIDAD')
+        lbl_act.setObjectName('seccion')
+        act_lo.addWidget(lbl_act)
+
+        self.log_text = QTextEdit()
+        self.log_text.setObjectName('log')
+        self.log_text.setReadOnly(True)
+        self.log_text.setFont(estilo.fuente(9, mono=True))
+        act_lo.addWidget(self.log_text, 1)
+
+        pie = QHBoxLayout()
+        self.barra = QProgressBar()
+        self.barra.setTextVisible(False)
+        self.barra.setVisible(False)
+        pie.addWidget(self.barra, 1)
+        self.btn_cancelar = QPushButton('✕  Cancelar')
+        estilo.marcar(self.btn_cancelar, variante='peligro')
+        self.btn_cancelar.setVisible(False)
+        self.btn_cancelar.clicked.connect(self._cancelar_worker)
+        pie.addWidget(self.btn_cancelar)
+        act_lo.addLayout(pie)
+
+        layout.addWidget(actividad, 1)
         self.show()
+
+    def _tarjeta_paso(self, numero, texto):
+        tarjeta = estilo.tarjeta(QFrame())
+        lo = QHBoxLayout(tarjeta)
+        lo.setContentsMargins(12, 12, 12, 12)
+        lo.setSpacing(10)
+        num = QLabel(numero)
+        num.setObjectName('paso_num')
+        num.setFixedSize(28, 28)
+        num.setAlignment(Qt.AlignCenter)
+        lo.addWidget(num, 0, Qt.AlignTop)
+        lbl = QLabel(texto)
+        lbl.setWordWrap(True)
+        lo.addWidget(lbl, 1)
+        return tarjeta
 
     # ------------------------------------------------------------------
 
@@ -318,7 +356,7 @@ class VentanaFacturas(QMainWindow):
             QMessageBox.information(
                 self, 'Todavía no hay Excel',
                 'Todavía no se cargó ninguna factura, así que el Excel no existe.\n\n'
-                'Cargá facturas primero con "Insertar Factura".'
+                'Cargá facturas primero con "Insertar facturas".'
             )
             return
         self._abrir_archivo(str(EXCEL_FACTURAS))
