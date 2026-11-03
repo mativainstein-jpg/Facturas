@@ -14,6 +14,9 @@ PUNTO_VENTA_FIJO = '4'   # todas las facturas se cargan con este punto de venta
 LABEL_PROCESADO = 'Procesado'
 
 EXCEL_FACTURAS   = BASE_DIR / 'facturas.xlsx'
+# Copia de facturas.xlsx antes de cada guardado (se conservan las últimas)
+RESPALDOS_DIR    = BASE_DIR / 'respaldos'
+RESPALDOS_MAX    = 30
 EXCEL_PROVEEDORES = BASE_DIR / 'proveedores.xlsx'
 EXCEL_NOMBRES    = BASE_DIR / 'cuit_nombre.xlsx'   # cruce CUIT -> denominación
 # Proveedores que agrega el administrativo en ESTA PC. NO se versiona

@@ -68,6 +68,12 @@ Excel funciona sin internet. (Gmail si necesita internet, obviamente.)
 No. El Excel de facturas, el token de Gmail y el `credentials.json` son propios
 de esa PC y la actualizacion no los toca.
 
+**Y si se rompe el Excel de facturas?**
+Cada vez que la app guarda, deja antes una copia de `facturas.xlsx` en la
+carpeta `respaldos` (se conservan las ultimas 30). Si `facturas.xlsx` no abre,
+copiar el respaldo mas reciente al lado de `procesar.bat` y renombrarlo a
+`facturas.xlsx`. La misma app lo indica si detecta el archivo danado.
+
 **Y si no quiere instalar Git?**
 La app funciona igual, pero no se actualiza sola: en ese caso le tenes que pasar
 los cambios a mano (o instalas Git despues y ya queda automatico).
