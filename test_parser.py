@@ -4,7 +4,15 @@ Prueba el parser sobre PDFs locales sin escribir nada en Excel.
 
 Uso:
     python test_parser.py factura1.pdf [factura2.pdf ...]
+
+Regresión (para comprobar que un cambio no rompe facturas que ya andaban):
+    python test_parser.py --guardar esperado.json factura1.pdf ...
+        Graba lo que lee hoy de cada factura.
+    python test_parser.py --comparar esperado.json factura1.pdf ...
+        Muestra solo lo que cambió respecto de lo grabado (sale con código 1
+        si hubo diferencias).
 """
+import json
 import sys
 from pathlib import Path
 
@@ -54,33 +62,71 @@ def _fmt(val):
     return str(val)
 
 
+def _parsear(ruta: Path, indice_proveedores: dict, indice_nombres: dict = None):
+    """Devuelve (datos, None) o (None, mensaje de error)."""
+    try:
+        pdf_bytes = ruta.read_bytes()
+    except Exception as e:
+        return None, f'No se pudo leer el archivo: {e}'
+    try:
+        texto = extraer_texto(pdf_bytes)
+    except Exception as e:
+        return None, f'Error extrayendo texto del PDF: {e}'
+    if not es_texto_valido(texto):
+        return None, ('Texto insuficiente o tipo de comprobante no reconocido '
+                      '(el PDF puede ser imagen escaneada o no ser una factura AFIP)')
+    try:
+        return parsear_factura(texto, ruta.name, indice_proveedores,
+                               pdf_bytes=pdf_bytes, indice_nombres=indice_nombres), None
+    except Exception as e:
+        return None, f'Error al parsear: {e}'
+
+
+def _resultado(ruta, indice_proveedores, indice_nombres):
+    datos, error = _parsear(ruta, indice_proveedores, indice_nombres)
+    if error:
+        return {'error': error}
+    return {key: datos.get(key) for key, _ in _CAMPOS}
+
+
+def guardar(destino: Path, rutas, indice_proveedores, indice_nombres):
+    esperado = {r.name: _resultado(r, indice_proveedores, indice_nombres) for r in rutas}
+    destino.write_text(json.dumps(esperado, ensure_ascii=False, indent=1, default=str),
+                       encoding='utf-8')
+    print(f'Grabado lo leído de {len(esperado)} PDF(s) en {destino}')
+
+
+def comparar(origen: Path, rutas, indice_proveedores, indice_nombres):
+    esperado = json.loads(origen.read_text(encoding='utf-8'))
+    etiquetas = dict(_CAMPOS)
+    n_dif = 0
+    for r in rutas:
+        if r.name not in esperado:
+            print(f'  ?  {r.name}: no está en {origen.name}')
+            continue
+        # Pasar por JSON para comparar con los mismos tipos que lo grabado.
+        actual = json.loads(json.dumps(_resultado(r, indice_proveedores, indice_nombres),
+                                       default=str))
+        antes = esperado[r.name]
+        difs = [(k, antes.get(k), actual.get(k)) for k in sorted(set(antes) | set(actual))
+                if antes.get(k) != actual.get(k)]
+        if difs:
+            n_dif += 1
+            print(f'\n  ✗ {r.name}')
+            for k, a, b in difs:
+                print(f'      {etiquetas.get(k, k):<26} {_fmt(a)}  →  {_fmt(b)}')
+    print(f'\n{len(rutas) - n_dif}/{len(rutas)} PDF(s) sin cambios.')
+    return n_dif == 0
+
+
 def analizar(ruta: Path, indice_proveedores: dict, indice_nombres: dict = None):
     print(f'\n{"─" * 64}')
     print(f'  {ruta.name}')
     print(f'{"─" * 64}')
 
-    try:
-        pdf_bytes = ruta.read_bytes()
-    except Exception as e:
-        print(f'  ✗ No se pudo leer el archivo: {e}')
-        return
-
-    try:
-        texto = extraer_texto(pdf_bytes)
-    except Exception as e:
-        print(f'  ✗ Error extrayendo texto del PDF: {e}')
-        return
-
-    if not es_texto_valido(texto):
-        print('  ⚠  Texto insuficiente o tipo de comprobante no reconocido.')
-        print('     (El PDF puede ser imagen escaneada o no ser una factura AFIP)')
-        return
-
-    try:
-        datos = parsear_factura(texto, ruta.name, indice_proveedores,
-                                pdf_bytes=pdf_bytes, indice_nombres=indice_nombres)
-    except Exception as e:
-        print(f'  ✗ Error al parsear: {e}')
+    datos, error = _parsear(ruta, indice_proveedores, indice_nombres)
+    if error:
+        print(f'  ✗ {error}')
         return
 
     n_problemas = 0
@@ -104,11 +150,19 @@ def analizar(ruta: Path, indice_proveedores: dict, indice_nombres: dict = None):
 
 
 if __name__ == '__main__':
-    if len(sys.argv) < 2:
+    args = sys.argv[1:]
+    modo = archivo_json = None
+    if args and args[0] in ('--guardar', '--comparar'):
+        if len(args) < 2:
+            print(__doc__)
+            sys.exit(1)
+        modo, archivo_json, args = args[0], Path(args[1]), args[2:]
+
+    if not args:
         print(__doc__)
         sys.exit(1)
 
-    rutas = [Path(a) for a in sys.argv[1:]]
+    rutas = [Path(a) for a in args]
     faltantes = [r for r in rutas if not r.exists()]
     if faltantes:
         for r in faltantes:
@@ -128,6 +182,12 @@ if __name__ == '__main__':
             print(f'Índice de nombres cargado: {len(indice_nombres)} entradas')
     except Exception:
         indice_nombres = {}
+
+    if modo == '--guardar':
+        guardar(archivo_json, rutas, indice_proveedores, indice_nombres)
+        sys.exit(0)
+    if modo == '--comparar':
+        sys.exit(0 if comparar(archivo_json, rutas, indice_proveedores, indice_nombres) else 1)
 
     for ruta in rutas:
         analizar(ruta, indice_proveedores, indice_nombres)
