@@ -1,4 +1,6 @@
+import os
 import re
+import shutil
 from datetime import datetime
 import openpyxl
 from openpyxl.styles import PatternFill, Font
@@ -6,6 +8,7 @@ from openpyxl.utils import get_column_letter
 from config import (
     COLS, NUM_COLS, HEADERS_FACTURAS, EXCEL_FACTURAS, EXCEL_PROVEEDORES,
     EXCEL_NOMBRES, EXCEL_LOCALES, GASTOS_DESC, RUBROS_DESC,
+    RESPALDOS_DIR, RESPALDOS_MAX,
 )
 
 _FILL_ROJO   = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
@@ -29,6 +32,13 @@ class ExcelManager:
                 f'No se puede abrir "{EXCEL_FACTURAS.name}" porque está abierto '
                 'en Excel (u otro programa). Cerralo e intentá de nuevo.'
             )
+        except Exception as e:
+            raise RuntimeError(
+                f'No se pudo abrir "{EXCEL_FACTURAS.name}": parece dañado ({e}).\n'
+                f'En la carpeta "{RESPALDOS_DIR.name}" hay copias automáticas: copiá la '
+                f'más reciente junto al programa, renombrala a "{EXCEL_FACTURAS.name}" '
+                'y volvé a intentar.'
+            ) from e
 
         self._ensure('FACTURAS',   HEADERS_FACTURAS)
         self._ensure('DUPLICADAS', ['Fecha', 'Nombre adjunto', 'Clave comprobante', 'Motivo', 'Thread ID'])
@@ -99,9 +109,17 @@ class ExcelManager:
     # ------------------------------------------------------------------
 
     def guardar(self):
+        # Se graba en un temporal y recién después se reemplaza el original:
+        # un corte a mitad de guardado nunca deja facturas.xlsx a medio escribir.
+        temporal = EXCEL_FACTURAS.with_name(f'{EXCEL_FACTURAS.stem}.guardando.xlsx')
         try:
-            self.wb.save(str(EXCEL_FACTURAS))
-        except PermissionError:
+            self.wb.save(str(temporal))
+            _respaldar(EXCEL_FACTURAS)
+            os.replace(temporal, EXCEL_FACTURAS)
+        except BaseException as e:
+            temporal.unlink(missing_ok=True)
+            if not isinstance(e, PermissionError):
+                raise
             raise PermissionError(
                 f'No se puede guardar "{EXCEL_FACTURAS.name}" porque está abierto '
                 'en Excel (u otro programa). Cerralo y volvé a procesar las facturas.'
@@ -109,6 +127,19 @@ class ExcelManager:
 
     def cerrar(self):
         self.wb.close()
+
+
+def _respaldar(archivo):
+    """Copia el archivo a RESPALDOS_DIR y deja solo los RESPALDOS_MAX más nuevos."""
+    if not archivo.exists():
+        return
+    try:
+        RESPALDOS_DIR.mkdir(exist_ok=True)
+        shutil.copy2(archivo, RESPALDOS_DIR / f'{archivo.stem}_{datetime.now():%Y-%m-%d_%H%M%S}.xlsx')
+        for viejo in sorted(RESPALDOS_DIR.glob(f'{archivo.stem}_*.xlsx'))[:-RESPALDOS_MAX]:
+            viejo.unlink()
+    except OSError:
+        pass  # un respaldo fallido no tiene que impedir guardar las facturas
 
 
 # ------------------------------------------------------------------
@@ -192,6 +223,9 @@ def cargar_indice_proveedores():
             rubro = int(row[3]) if row[3] is not None else None
         except (ValueError, TypeError):
             rubro = None
+        # 0 = "sin clasificar" en el sistema contable (no existe en los
+        # listados oficiales): se trata como faltante para que salga VERIFICAR.
+        gasto, rubro = gasto or None, rubro or None
         indice[cuit] = {
             'gasto':      gasto,
             'desc_gasto': GASTOS_DESC.get(gasto),
@@ -203,13 +237,14 @@ def cargar_indice_proveedores():
 
     # Sumar (o corregir) con lo que agregó el administrativo en esta PC
     for p in _leer_proveedores_locales():
-        if not p['cuit'] or (p['gasto'] is None and p['rubro'] is None):
+        gasto, rubro = p['gasto'] or None, p['rubro'] or None
+        if not p['cuit'] or (gasto is None and rubro is None):
             continue
         indice[p['cuit']] = {
-            'gasto':      p['gasto'],
-            'desc_gasto': GASTOS_DESC.get(p['gasto']),
-            'rubro':      p['rubro'],
-            'desc_rubro': RUBROS_DESC.get(p['rubro']),
+            'gasto':      gasto,
+            'desc_gasto': GASTOS_DESC.get(gasto),
+            'rubro':      rubro,
+            'desc_rubro': RUBROS_DESC.get(rubro),
         }
 
     return indice
