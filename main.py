@@ -5,7 +5,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent))
 
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QGuiApplication
 from PyQt5.QtWidgets import QApplication, QMessageBox
+import estilo
 from config import BASE_DIR
 from ventana import VentanaFacturas
 
@@ -40,6 +43,14 @@ def _manejar_excepcion(tipo, valor, tb):
 
 if __name__ == '__main__':
     sys.excepthook = _manejar_excepcion
+    # Nítido en notebooks con escalado de Windows (125%, 150%...). Tiene que ir
+    # antes de crear la QApplication.
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling, True)
+    QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps, True)
+    if hasattr(QGuiApplication, 'setHighDpiScaleFactorRoundingPolicy'):
+        QGuiApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough)
     app = QApplication(sys.argv)
+    estilo.aplicar(app)
     window = VentanaFacturas()
     sys.exit(app.exec_())
