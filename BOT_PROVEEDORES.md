@@ -66,6 +66,11 @@ actualizando Facturas con normalidad.
   Telegram mandando pedidos directo a la URL del webhook.
 - Si el archivo no tiene las columnas esperadas, o tiene muy pocas filas
   válidas, no toca el repositorio — solo avisa el error por Telegram.
+- Si un maestro (`cuit_nombre.xlsx` / `proveedores.xlsx`) se lee vacío o casi
+  vacío desde GitHub, tampoco escribe nada: sin este control lo reescribiría
+  de cero con solo lo que trae el archivo enviado. Los maestros se leen en
+  formato "raw" (la otra forma de la API devuelve vacío pasado 1 MB, y eso
+  ya causó una reescritura completa el 17/09/2026) y se graban comprimidos.
 
 ## Comando /estado
 

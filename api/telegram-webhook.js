@@ -28,6 +28,8 @@ const GITHUB_API = 'https://api.github.com';
 const MIN_FILAS_VALIDAS = 100; // debajo de esto, se sospecha archivo incorrecto
 const BEJERMAN_REPO = process.env.BEJERMAN_REPO ?? 'facturas-bejerman';
 const BEJERMAN_BRANCH = process.env.BEJERMAN_BRANCH || 'main';
+const ENCABEZADO_NOMBRES = ['cuit', 'nombre'];
+const ENCABEZADO_PROVEEDORES = ['cuit', 'codgasto', 'Gastos', 'codrubro'];
 
 // ---------------------------------------------------------------------------
 // Parseo del archivo que manda el administrativo
@@ -155,20 +157,65 @@ async function ghFetch(path, opts = {}) {
   return res.json();
 }
 
+// La Contents API en formato JSON devuelve `content` VACÍO para archivos de más
+// de 1 MB; pedido como "raw" trae los bytes hasta 100 MB.
+async function ghFetchBytes(path) {
+  const res = await fetch(`${GITHUB_API}${path}`, {
+    headers: {
+      Authorization: `Bearer ${process.env.GITHUB_TOKEN}`,
+      Accept: 'application/vnd.github.raw',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`GitHub API ${path} -> ${res.status}: ${body.slice(0, 300)}`);
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
+function contarFilasConCuit(rows) {
+  return rows.filter((r) => String(r[0] ?? '').replace(/\D/g, '').length === 11).length;
+}
+
+// Nunca fusionar contra un maestro que se leyó vacío o casi vacío: se
+// reescribiría de cero con solo lo que trae el archivo enviado.
+function validarMaestro(rows, path, branch) {
+  const n = contarFilasConCuit(rows);
+  if (n < MIN_FILAS_VALIDAS) {
+    throw new Error(
+      `El maestro ${path} de la rama ${branch} se leyó casi vacío (${n} filas). ` +
+        'No toqué nada.'
+    );
+  }
+}
+
+// El indexador saltea siempre la fila 0, así que tiene que ser el encabezado.
+function asegurarEncabezado(rows, encabezado) {
+  const fila0 = rows[0] || [];
+  if (fila0.every((v) => v === '' || v == null)) {
+    rows[0] = [...encabezado];
+  } else if (String(fila0[0]).trim().toLowerCase() !== 'cuit') {
+    rows.unshift([...encabezado]);
+  }
+  return rows;
+}
+
 async function leerXlsxDeRama(owner, repo, branch, path) {
-  const data = await ghFetch(`/repos/${owner}/${repo}/contents/${path}?ref=${branch}`);
-  const buf = Buffer.from(data.content, 'base64');
+  const buf = await ghFetchBytes(`/repos/${owner}/${repo}/contents/${path}?ref=${branch}`);
   const wb = XLSX.read(buf, { type: 'buffer' });
   const sheetName = wb.SheetNames[0];
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });
+  validarMaestro(rows, path, branch);
   return { rows, sheetName };
 }
 
 function serializarXlsx(rows, sheetName) {
-  const ws = XLSX.utils.aoa_to_sheet(rows);
+  // '' viene de leer con defval; como null la celda ni se escribe (archivo más chico).
+  const ws = XLSX.utils.aoa_to_sheet(rows.map((r) => r.map((v) => (v === '' ? null : v))));
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' });
+  return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', compression: true });
 }
 
 async function actualizarRama(owner, repo, branch, nuevoMap, soloNombres = false) {
@@ -179,6 +226,9 @@ async function actualizarRama(owner, repo, branch, nuevoMap, soloNombres = false
   const { rows: rowsProv, sheetName: sheetProv } = soloNombres
     ? { rows: null, sheetName: null }
     : await leerXlsxDeRama(owner, repo, branch, 'proveedores.xlsx');
+
+  asegurarEncabezado(rowsNombres, ENCABEZADO_NOMBRES);
+  if (!soloNombres) asegurarEncabezado(rowsProv, ENCABEZADO_PROVEEDORES);
 
   const rNombres = actualizarNombres(rowsNombres, nuevoMap);
   const rProv = soloNombres
@@ -487,4 +537,15 @@ export default {
     waitUntil(procesarMensaje(message));
     return new Response('OK');
   },
+};
+
+// Para las pruebas locales (Vercel solo usa el `export default`).
+export {
+  parsearArchivoNuevo,
+  actualizarNombres,
+  actualizarProveedores,
+  asegurarEncabezado,
+  validarMaestro,
+  serializarXlsx,
+  actualizarRama,
 };
