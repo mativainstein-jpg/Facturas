@@ -13,6 +13,38 @@ NOMBRE_NAIMAN = 'NAIMAN'   # para descartar la Razón Social del RECEPTOR (nunca
 PUNTO_VENTA_FIJO = '4'   # todas las facturas se cargan con este punto de venta
 LABEL_PROCESADO = 'Procesado'
 
+# Tipo de comprobante según el código AFIP que trae la factura ("COD. 01").
+# Factura de Crédito Electrónica MiPyME (201-213) se carga igual que la común.
+# Un código que no está en esta tabla queda en VERIFICAR (no se adivina).
+TIPOS_AFIP = {
+    1: 'FCA',   2: 'NDA',   3: 'NCA',     # Factura / Nota de Débito / Nota de Crédito A
+    201: 'FCA', 202: 'NDA', 203: 'NCA',   # ídem FCE MiPyME A
+    11: 'FCC',  12: 'NDC',  13: 'NCC',    # Factura / Nota de Débito / Nota de Crédito C
+    211: 'FCC', 212: 'NDC', 213: 'NCC',   # ídem FCE MiPyME C
+}
+_FAMILIA_A = {'FCA', 'NDA', 'NCA'}
+_FAMILIA_C = {'FCC', 'NDC', 'NCC'}
+
+
+def familia(tipo):
+    """'A' (discrimina IVA), 'C' (monotributista) o None si no se sabe."""
+    if tipo in _FAMILIA_A:
+        return 'A'
+    if tipo in _FAMILIA_C:
+        return 'C'
+    return None
+
+
+def es_nota_credito(tipo):
+    return tipo in ('NCA', 'NCC')
+
+
+# Notas de crédito: por ahora se cargan con importes POSITIVOS (igual que
+# antes) y se distinguen por el tipo (NCA / NCC). Si el contador prefiere que
+# resten solas, cambiar a True: neto, IVA, total, percepciones, etc. se
+# escriben en negativo.
+NC_EN_NEGATIVO = False
+
 EXCEL_FACTURAS   = BASE_DIR / 'facturas.xlsx'
 # Copia de facturas.xlsx antes de cada guardado (se conservan las últimas)
 RESPALDOS_DIR    = BASE_DIR / 'respaldos'

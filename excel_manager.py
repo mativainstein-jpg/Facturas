@@ -3,12 +3,14 @@ import re
 import shutil
 from datetime import datetime
 import openpyxl
+from openpyxl.comments import Comment
 from openpyxl.styles import PatternFill, Font
 from openpyxl.utils import get_column_letter
 from config import (
     COLS, NUM_COLS, HEADERS_FACTURAS, EXCEL_FACTURAS, EXCEL_PROVEEDORES,
     EXCEL_NOMBRES, EXCEL_LOCALES, GASTOS_DESC, RUBROS_DESC,
     RESPALDOS_DIR, RESPALDOS_MAX,
+    familia, es_nota_credito, NC_EN_NEGATIVO,
 )
 
 _FILL_ROJO   = PatternFill(start_color='FF0000', end_color='FF0000', fill_type='solid')
@@ -95,6 +97,14 @@ class ExcelManager:
             cell = ws.cell(row=fila_num, column=col)
             cell.fill = _FILL_ROJO
             cell.font = _FONT_BLANCO
+
+        if datos.get('moneda_extranjera'):
+            tc = datos.get('tipo_cambio')
+            texto = ('Factura en MONEDA EXTRANJERA: los importes están en la '
+                     'moneda de la factura, NO en pesos.')
+            if tc:
+                texto += f' Tipo de cambio que figura en la factura: {tc:g}.'
+            ws.cell(row=fila_num, column=COLS['TOTAL']).comment = Comment(texto, 'Procesador')
 
         return cols_verificar
 
@@ -345,6 +355,15 @@ def crear_archivo_locales_si_falta():
 def _armar_fila_verificada(d):
     fila  = [None] * NUM_COLS
     cols_verificar = []
+    # ¿Discrimina IVA? Familia A, o tipo desconocido (se revisa como una A).
+    # La Constancia de Pago (RCC) no: va todo a Exento.
+    fam = familia(d['tipo'])
+    discrimina = fam == 'A' or (fam is None and d['tipo'] != 'RCC')
+
+    # Notas de crédito en negativo (si se activa en config.py). Las
+    # validaciones de abajo (total > 0, suma) trabajan con los importes
+    # positivos; el signo se aplica recién al final.
+    negar = NC_EN_NEGATIVO and es_nota_credito(d['tipo'])
 
     def set_col(key, valor):
         fila[COLS[key] - 1] = valor
@@ -413,22 +432,22 @@ def _armar_fila_verificada(d):
         fila[COLS['PRECIO_UNITARIO'] - 1] = 'VERIFICAR'
         cols_verificar.append(COLS['PRECIO_UNITARIO'])
 
-    if d['tipo'] == 'FCA' and d['neto_num'] is None:
+    if discrimina and d['neto_num'] is None:
         fila[COLS['NETO'] - 1] = 'VERIFICAR'
         cols_verificar.append(COLS['NETO'])
 
-    if d['tipo'] == 'FCA' and d['iva_num'] is None:
+    if discrimina and d['iva_num'] is None:
         fila[COLS['IVA'] - 1] = 'VERIFICAR'
         cols_verificar.append(COLS['IVA'])
 
-    if d['tipo'] == 'FCA' and d['tasa'] is None:
+    if discrimina and d['tasa'] is None:
         fila[COLS['TASA'] - 1] = 'VERIFICAR'
         cols_verificar.append(COLS['TASA'])
 
     if d['total_num'] is None or d['total_num'] <= 0:
         fila[COLS['TOTAL'] - 1] = 'VERIFICAR'
         cols_verificar.append(COLS['TOTAL'])
-    elif d['tipo'] == 'FCA' and d['neto_num'] is not None and d['iva_num'] is not None:
+    elif discrimina and d['neto_num'] is not None and d['iva_num'] is not None:
         otros = d.get('otros_tributos_num') or 0
         suma  = d['neto_num'] + d['iva_num'] + otros
         if abs(d['total_num'] - suma) > 1.0:
@@ -453,4 +472,20 @@ def _armar_fila_verificada(d):
         fila[COLS['ANIO_IMPUTACION'] - 1] = 'VERIFICAR'
         cols_verificar.append(COLS['ANIO_IMPUTACION'])
 
+    if d.get('moneda_extranjera'):
+        for key in ('NETO', 'IVA', 'TOTAL'):
+            if COLS[key] not in cols_verificar:
+                cols_verificar.append(COLS[key])
+
+    if negar:
+        for i, v in enumerate(fila):
+            if i + 1 in _COLS_IMPORTE and isinstance(v, (int, float)) and v:
+                fila[i] = -abs(v)
+
     return fila, cols_verificar
+
+
+_COLS_IMPORTE = {COLS[k] for k in (
+    'NETO', 'IVA', 'NO_GRAVADO', 'IMP_INTERNOS', 'EXENTOS', 'PERCEPCION_IVA',
+    'PERCEPCION_IIBB', 'MONOTRIBUTISTA', 'PERCEPCION_GANANCIAS', 'TOTAL',
+)}
