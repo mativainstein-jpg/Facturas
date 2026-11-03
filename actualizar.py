@@ -11,11 +11,23 @@ el administrativo no tenga que pensar en nada. Está en Python (y no en el
 .bat) para que actualizarse a sí mismo sea seguro: Python carga todo el
 archivo en memoria antes de ejecutarlo.
 """
+import os
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent
+GIT_DIR = BASE_DIR / '.git'
+
+# Que git nunca se quede esperando una contraseña (ni en la consola ni en la
+# ventana de login del administrador de credenciales de Windows): si falta la
+# credencial, falla enseguida y la app abre con la versión que ya tiene.
+_ENV_GIT = {**os.environ, 'GIT_TERMINAL_PROMPT': '0', 'GCM_INTERACTIVE': 'never'}
+DIAS_AVISO = 7
+# Marca propia de la última descarga exitosa. FETCH_HEAD no sirve: git lo
+# reescribe aunque la descarga falle. Dentro de .git, nadie la versiona.
+MARCA_OK = GIT_DIR / 'facturas_ultima_actualizacion'
 
 
 def _git(*args, timeout=30):
@@ -27,6 +39,7 @@ def _git(*args, timeout=30):
             capture_output=True,
             text=True,
             timeout=timeout,
+            env=_ENV_GIT,
         )
         return r.returncode == 0, (r.stdout + r.stderr).strip()
     except FileNotFoundError:
@@ -41,6 +54,32 @@ def _version_actual():
     """'DD/MM/AAAA;HH:MM' del último commit aplicado, o None si no se pudo saber."""
     ok, salida = _git('log', '-1', '--format=%cd', '--date=format:%d/%m/%Y;%H:%M', timeout=10)
     return salida.strip() if ok and salida else None
+
+
+def _destrabar_lock():
+    """Si una actualización anterior se cortó (por ejemplo, por el timeout),
+    puede quedar .git/index.lock y desde ahí git falla siempre. Un lock de
+    más de 10 minutos es de una corrida muerta: se borra."""
+    lock = GIT_DIR / 'index.lock'
+    try:
+        if lock.exists() and time.time() - lock.stat().st_mtime > 600:
+            lock.unlink()
+    except OSError:
+        pass
+
+
+def _avisar_si_hace_mucho():
+    try:
+        dias = int((time.time() - MARCA_OK.stat().st_mtime) // 86400)
+    except OSError:
+        return   # nunca hubo una descarga exitosa con esta versión: sin dato
+    if dias >= DIAS_AVISO:
+        print()
+        print('  ' + '!' * 60)
+        print(f'  !!  AVISO: hace {dias} dias que esta PC no recibe actualizaciones.')
+        print('  !!  La app abre igual, pero avisale a Mati.')
+        print('  ' + '!' * 60)
+        print()
 
 
 def _mostrar_version():
@@ -72,11 +111,18 @@ def main():
     # si la conexión está mala, mejor fallar rápido y abrir con lo que hay
     # en vez de colgarse un buen rato en la pantalla de arranque.
     print('  Buscando actualizaciones...')
-    ok, _ = _git('fetch', '--quiet', timeout=10)
+    # Solo la rama propia: las demás (el bot, otras PCs) no hacen falta.
+    _destrabar_lock()
+    ok, _ = _git('fetch', '--quiet', 'origin', rama, timeout=10)
     if not ok:
         print('  [i] Sin internet o sin acceso: se usa la version que ya tenes.')
+        _avisar_si_hace_mucho()
         _mostrar_version()
         return
+    try:
+        MARCA_OK.touch()
+    except OSError:
+        pass
 
     # Aplicar la última versión sin riesgo de conflictos.
     # Los datos del usuario (facturas.xlsx, token.json, credentials.json) están
