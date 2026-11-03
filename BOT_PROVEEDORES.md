@@ -52,12 +52,10 @@ cambiar esa regla.
 - Para dejar de actualizar Bejerman sin tocar código: poner la variable
   `BEJERMAN_REPO` vacía en Vercel y volver a desplegar.
 
-## Versión anterior (desactivada, no usar)
+## Versión anterior (borrada)
 
-`.github/workflows/bot-proveedores.yml` y `.github/scripts/bot_telegram.py`
-son una versión anterior del bot que corría en GitHub Actions (revisando
-Telegram cada 1 hora). Quedó **desactivada manualmente** el 26/08/2026 y se
-conserva solo como respaldo. No hay que volver a activarla mientras el
-webhook de Vercel esté en uso: Telegram no permite usar webhook y revisión
-periódica a la vez, y fallaría. Además, esa versión no actualiza el
-programa de Bejerman. `bot_state/last_update_id.txt` pertenece a esa versión.
+Antes de Vercel, el bot corría en GitHub Actions revisando Telegram cada 1
+hora. Se desactivó el 26/08/2026 y se borró del repositorio el 03/11/2026
+(`.github/` y `bot_state/`) para que nadie la reactive por error: Telegram no
+permite webhook y revisión periódica a la vez, así que rompería el bot de
+Vercel. Si hiciera falta consultarla, está en el historial de git.
