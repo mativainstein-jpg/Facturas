@@ -18,7 +18,7 @@ try:
 except ImportError:
     _PDF_OK = False
 
-from pdf_parser import _num as _parsear_numero_flexible
+from pdf_parser import _num as _parsear_numero_flexible, armar_clave, _normalizar_cuit
 
 
 # ---------------------------------------------------------------------------
@@ -221,6 +221,20 @@ class ReconciliacionDialog(QDialog):
         else:
             self._lbl_titulo.setText('No hay facturas para conciliar.')
 
+        # PDFs que no se pudieron leer: no pasan por la revisión, así que se
+        # avisa al abrir (si no, desaparecían sin que nadie lo note).
+        fallidos = [r for r in resultados if r['error'] or not r['datos']]
+        if fallidos:
+            lista = '\n'.join(f'  • {r["filename"]}: {r["error"] or "sin datos"}'
+                              for r in fallidos[:15])
+            if len(fallidos) > 15:
+                lista += f'\n  … y {len(fallidos) - 15} más'
+            QTimer.singleShot(300, lambda: QMessageBox.warning(
+                self, 'PDFs que no se pudieron leer',
+                f'{len(fallidos)} PDF(s) no se pudieron leer y NO se van a cargar '
+                f'(quedan anotados en la hoja ERRORES):\n\n{lista}\n\n'
+                'Cargalos a mano si corresponde.'))
+
     # ------------------------------------------------------------------
     # Construcción de UI
     # ------------------------------------------------------------------
@@ -385,10 +399,6 @@ class ReconciliacionDialog(QDialog):
 
         root.addLayout(bot)
 
-    def _cancelar_todo(self):
-        if self._confirmar_cancelar():
-            self.reject()
-
     def _confirmar_cancelar(self):
         resp = QMessageBox.question(
             self, 'Cancelar todo',
@@ -398,9 +408,20 @@ class ReconciliacionDialog(QDialog):
         )
         return resp == QMessageBox.Yes
 
-    def closeEvent(self, event):
-        # La X de la ventana también pide confirmación (evita perder trabajo)
+    def reject(self):
+        # La tecla Esc llama a reject() directo (sin pasar por closeEvent):
+        # también tiene que pedir confirmación, si no se perdía toda la
+        # revisión con un solo toque.
         if self._confirmar_cancelar():
+            super().reject()
+
+    def _cancelar_todo(self):
+        self.reject()
+
+    def closeEvent(self, event):
+        # La X de la ventana también pide confirmación (evita perder trabajo).
+        # Al guardar (accept) la ventana se cierra sin preguntar.
+        if self.result() == QDialog.Accepted or self._confirmar_cancelar():
             event.accept()
         else:
             event.ignore()
@@ -429,8 +450,8 @@ class ReconciliacionDialog(QDialog):
         for key, *_ in _CAMPOS:
             self._inputs[key].set_valor(datos.get(key))
 
-        # Avisos de duplicado / error
-        es_dup = r['dup_clave'] or r['dup_nombre']
+        # Avisos de duplicado / error / moneda extranjera
+        es_dup = r['dup_clave']
         if es_dup:
             self._lbl_aviso.setText(
                 '⚠  Esta factura ya existe en el Excel (duplicada). '
@@ -447,13 +468,29 @@ class ReconciliacionDialog(QDialog):
             )
             self._lbl_aviso.setVisible(True)
         else:
-            self._lbl_aviso.setVisible(False)
+            avisos = []
+            if datos.get('moneda_extranjera'):
+                tc = datos.get('tipo_cambio')
+                avisos.append(
+                    '💲  Factura en MONEDA EXTRANJERA: los importes NO están en pesos'
+                    + (f' (tipo de cambio en la factura: {tc:g})' if tc else '') + '.')
+            if r.get('dup_nombre'):
+                avisos.append(
+                    'ℹ  Ya se cargó antes un PDF con este mismo nombre de archivo. '
+                    'Si los datos son de otra factura, confirmala normal.')
+            if avisos:
+                self._lbl_aviso.setText('\n'.join(avisos))
+                self._lbl_aviso.setStyleSheet(
+                    'background:#fff3cd; color:#856404; padding:8px; border-radius:4px;'
+                )
+            self._lbl_aviso.setVisible(bool(avisos))
 
         readonly = es_dup or bool(r['error'])
         for inp in self._inputs.values():
             inp.set_readonly(readonly)
 
         self._btn_confirmar.setEnabled(not readonly)
+        self._btn_omitir.setEnabled(True)   # se deshabilita en _mostrar_fin
         self._btn_ant.setEnabled(idx > 0)
 
         # Renderizar PDF con breve delay para que la UI no se congele
@@ -523,6 +560,34 @@ class ReconciliacionDialog(QDialog):
         # usuario lo corrigió acá, ya está revisado: no marcarlo en rojo.
         if not datos.get('denominacion_cruzada') and datos.get('denominacion') != original:
             datos['denominacion_cruzada'] = True
+
+        if datos.get('tipo'):
+            datos['tipo'] = str(datos['tipo']).strip().upper()
+        if datos.get('cuit'):
+            # Mismo formato que el parser (20-12345678-9) aunque se tipee sin
+            # guiones: si no, la clave no coincide con la de la ya cargada.
+            datos['cuit'] = _normalizar_cuit(datos['cuit'])
+
+        # Si cambió la fecha y el mes/año siguen como los leyó el programa,
+        # se recalculan con la fecha nueva (si el usuario tocó mes/año a
+        # propósito, se respeta lo que puso).
+        orig = r['datos']
+        if datos.get('fecha') != orig.get('fecha'):
+            m = re.match(r'^\s*(\d{1,2})/(\d{1,2})/(\d{4})\s*$', datos.get('fecha') or '')
+            if m:
+                if datos.get('mes') == orig.get('mes'):
+                    datos['mes'] = int(m.group(2))
+                if datos.get('anio') == orig.get('anio'):
+                    datos['anio'] = int(m.group(3))
+
+        # La clave de duplicados se arma con tipo|CUIT|PV|número: si el
+        # usuario corrigió alguno, se recalcula (si no, quedaba la vieja,
+        # ej. "...|SIN_NUMERO", y la factura se podía cargar dos veces).
+        if datos.get('tipo') != 'RCC':
+            datos['clave'] = armar_clave(
+                datos.get('tipo'), datos.get('cuit'),
+                datos.get('punto_venta_factura') or datos.get('punto_venta'),
+                datos.get('numero'))
         return datos
 
     def _confirmar(self):
