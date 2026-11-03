@@ -1,7 +1,6 @@
 import json
 from PyQt5.QtCore import QThread, pyqtSignal
-from gmail_client import autenticar, buscar_pdfs_gmail, descargar_adjunto, aplicar_label
-from pdf_parser import extraer_texto, es_texto_valido, parsear_factura
+from pdf_parser import extraer_texto, es_texto_valido, parsear_factura, clave_completa
 from excel_manager import ExcelManager, cargar_indice_proveedores, cargar_indice_nombres
 from config import JSON_ESTADO, LABEL_PROCESADO
 
@@ -26,6 +25,11 @@ class ProcesadorGmailWorker(QThread):
             self.error_critico.emit(str(e))
 
     def _ejecutar(self):
+        # Import acá adentro (no arriba del archivo): si las librerías de
+        # Google no están instaladas, el programa abre igual y solo falla
+        # este botón.
+        from gmail_client import autenticar, buscar_pdfs_gmail, descargar_adjunto, aplicar_label
+
         self.log.emit('Autenticando con Gmail...')
         try:
             service = autenticar()
@@ -208,10 +212,18 @@ class ProcesadorLocalWorker(QThread):
                     datos = parsear_factura(texto, ruta.name, indice_proveedores,
                                             pdf_bytes=pdf_bytes, indice_nombres=indice_nombres)
                     entry['datos']      = datos
-                    entry['dup_clave']  = datos['clave'] in indice_duplicados['claves']
+                    entry['dup_clave']  = es_duplicada(datos['clave'], indice_duplicados)
+                    # Mismo nombre de archivo que una ya cargada: es solo un
+                    # aviso (muchos proveedores mandan "Factura.pdf"); lo que
+                    # decide si es repetida es la clave tipo|CUIT|PV|número.
                     entry['dup_nombre'] = ruta.name in indice_duplicados['nombres']
+                    if datos.get('moneda_extranjera'):
+                        self.log.emit('  ⚠ Factura en MONEDA EXTRANJERA (no está en pesos)')
             except Exception as e:
                 entry['error'] = str(e)
+
+            if entry['error']:
+                self.log.emit(f'  ✗ No se pudo leer: {entry["error"]}')
 
             resultados.append(entry)
 
@@ -239,14 +251,12 @@ def escribir_resultados_en_excel(resultados):
                 errores += 1
                 continue
 
-            # Re-check duplicates in case the index changed since parsing
-            dup_clave  = r['dup_clave']  or datos['clave']    in indice_duplicados['claves']
-            dup_nombre = r['dup_nombre'] or r['filename'] in indice_duplicados['nombres']
-
-            if dup_clave or dup_nombre:
-                razon = ('Duplicado por clave comprobante' if dup_clave
-                         else 'Duplicado por nombre adjunto')
-                excel.registrar_duplicado(r['filename'], datos['clave'], razon, '')
+            # Se vuelve a chequear con la clave FINAL (la pantalla de
+            # revisión la recalcula si el usuario corrigió tipo/CUIT/PV/número)
+            # y contra las que se acaban de escribir en esta misma tanda.
+            if es_duplicada(datos['clave'], indice_duplicados):
+                excel.registrar_duplicado(r['filename'], datos['clave'],
+                                          'Duplicado por clave comprobante', '')
                 duplicados += 1
                 continue
 
@@ -262,6 +272,12 @@ def escribir_resultados_en_excel(resultados):
         excel.cerrar()
 
     return {'ok': ok, 'duplicados': duplicados, 'errores': errores, 'verificar': verificar}
+
+
+def es_duplicada(clave, indice_duplicados):
+    """Repetida = misma clave tipo|CUIT|PV|número que una ya cargada. Una
+    clave incompleta (SIN_NUMERO, SIN_CUIT...) nunca cuenta como repetida."""
+    return clave_completa(clave) and clave in indice_duplicados['claves']
 
 
 # ---------------------------------------------------------------------------

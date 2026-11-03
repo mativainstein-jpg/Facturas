@@ -4,6 +4,26 @@ import pdfplumber
 from config import CUIT_NAIMAN, NOMBRE_NAIMAN, COLS, PUNTO_VENTA_FIJO
 
 
+# Tipo de comprobante según el código AFIP que trae la factura ("COD. 01").
+# Factura de Crédito Electrónica MiPyME (201-213) se carga igual que la común.
+# Un código que no está en esta tabla queda en VERIFICAR (no se adivina).
+TIPOS_AFIP = {
+    1: 'FCA',   2: 'NDA',   3: 'NCA',     # Factura / Nota de Débito / Nota de Crédito A
+    201: 'FCA', 202: 'NDA', 203: 'NCA',   # ídem FCE MiPyME A
+    11: 'FCC',  12: 'NDC',  13: 'NCC',    # Factura / Nota de Débito / Nota de Crédito C
+    211: 'FCC', 212: 'NDC', 213: 'NCC',   # ídem FCE MiPyME C
+}
+
+
+def familia(tipo):
+    """'A' (discrimina IVA), 'C' (monotributista) o None si no se sabe."""
+    if tipo in ('FCA', 'NDA', 'NCA'):
+        return 'A'
+    if tipo in ('FCC', 'NDC', 'NCC'):
+        return 'C'
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Extracción de texto
 # ---------------------------------------------------------------------------
@@ -16,8 +36,10 @@ def extraer_texto(pdf_bytes):
 
 # Etiqueta "Cód." del tipo de comprobante: algunos generadores (ej. Contabilium)
 # la escriben con tilde ("Cód.") y/o con dos puntos ("Cód.: 11") en vez del
-# "COD. 11" plano de AFIP.
-_COD_TIPO = r'C[oó]d\.?\s*:?\s*0*1'
+# "COD. 11" plano de AFIP. Se captura el número COMPLETO (1 a 3 dígitos:
+# 01 factura A, 03 nota de crédito A, 13 nota de crédito C, 201 FCE...) y se
+# traduce con TIPOS_AFIP (config.py).
+_COD_TIPO = r'C[oó]d\.?\s*:?\s*0*(\d{1,3})(?!\d)'
 
 
 def _es_constancia_pago(texto):
@@ -34,7 +56,7 @@ def es_texto_valido(texto):
         return True
     # Reusa _detectar_tipo (más abajo) para que cualquier mejora ahí
     # (nuevos formatos) también sirva acá, sin mantener 2 regex distintas.
-    return bool(texto) and len(texto) > 100 and _detectar_tipo(texto) != ''
+    return bool(texto) and len(texto) > 100 and _comprobante_reconocido(texto)
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +68,9 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     if _es_constancia_pago(texto):
         return _parsear_constancia_pago(texto, nombre_adjunto, indice_proveedores, indice_nombres)
 
+    texto = _primera_copia(texto)
     tipo = _detectar_tipo(texto)
+    fam  = familia(tipo)
     linea = _extraer_linea_producto(texto, pdf_bytes)
 
     numero      = _campo(texto, r'Comp\.\s*Nro\.?:\s*0*(\d+)')   # ".?" tolera "Nro.:"
@@ -106,7 +130,9 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     iva105 = _campo(texto, _IVA + r'10[.,]5%' + _HASTA_MONTO)
     iva21  = _campo(texto, _IVA + r'21%' + _HASTA_MONTO)
     iva27  = _campo(texto, _IVA + r'27%' + _HASTA_MONTO)
-    otros  = _campo(texto, r'Importe\s*de\s*Otros\s*Tributos:\s*\$?\s*([\d.,]+)')
+    # AFIP imprime "Importe Otros Tributos:" (sin "de"); otros generadores
+    # "Importe de Otros Tributos:". Se usa en el control de suma del total.
+    otros  = _campo(texto, r'Importe\s*(?:de\s*)?Otros\s*Tributos:\s*\$?\s*([\d.,]+)')
 
     total = _campo(texto, r'Importe\s*Total(?:\s*del\s*Comprobante)?:\s*\$?\s*([\d.,]+)')
     if not total:
@@ -114,7 +140,7 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         # sin dos puntos. \b evita que "TOTAL:" "matchee" dentro de "SUBTOTAL:".
         total = _campo(texto, r'\bTOTAL:\s*\$?\s*([\d.,]+)') \
              or _campo(texto, r'MONTO\s*TOTAL\s*\$?\s*([\d.,]+)')
-    if not total and tipo == 'FCC':
+    if not total and fam == 'C':
         total = _subtotal_linea(linea)
 
     # Campos de percepción e impuestos adicionales
@@ -135,20 +161,22 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     # None = no encontrado en el PDF (mostrar VERIFICAR en la UI)
     # 0.0  = encontrado pero es cero (dato real)
     kilos_num    = _num_o_none(kilos)
-    neto_num     = _num_o_none(neto) if tipo == 'FCA' else 0.0
+    # Familia desconocida (código AFIP raro): se leen los importes igual que
+    # en una A (no se ponen en 0), y el tipo queda en VERIFICAR.
+    neto_num     = _num_o_none(neto) if fam != 'C' else 0.0
     subtotal_num = _num(subtotal)
     ivas = [(2.5, _num(iva25)), (5, _num(iva5)), (10.5, _num(iva105)),
             (21, _num(iva21)), (27, _num(iva27))]
-    iva_num      = sum(monto for _, monto in ivas) or (None if tipo == 'FCA' else 0.0)
+    iva_num      = sum(monto for _, monto in ivas) or (None if fam != 'C' else 0.0)
     total_num    = _num_o_none(total)
     precio_num   = _num(precio_raw)
 
     # Tasa de IVA: monotributista (FCC) siempre 0; en factura A, la única
     # alícuota con importe > 0. Si hay varias (factura mixta) o ninguna,
     # queda None → VERIFICAR, en vez de elegir una en silencio.
-    if tipo == 'FCC':
+    if fam == 'C':
         tasa = 0
-    elif tipo == 'FCA':
+    elif fam == 'A':
         con_importe = [alicuota for alicuota, monto in ivas if monto > 0]
         tasa = con_importe[0] if len(con_importe) == 1 else None
     else:
@@ -156,9 +184,9 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
 
     if precio_num and precio_num > 0:
         precio_unitario_num = precio_num
-    elif tipo == 'FCC' and kilos_num and kilos_num > 0 and subtotal_num > 0:
+    elif fam == 'C' and kilos_num and kilos_num > 0 and subtotal_num > 0:
         precio_unitario_num = subtotal_num / kilos_num
-    elif tipo == 'FCA' and kilos_num and kilos_num > 0 and neto_num and neto_num > 0:
+    elif fam == 'A' and kilos_num and kilos_num > 0 and neto_num and neto_num > 0:
         precio_unitario_num = neto_num / kilos_num
     else:
         precio_unitario_num = None
@@ -178,20 +206,16 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     desc_gasto = prov['desc_gasto'] if prov else None
     desc_rubro = prov['desc_rubro'] if prov else None
 
-    posicion       = 'RM' if tipo == 'FCC' else ('RI' if tipo == 'FCA' else '')
+    posicion       = 'RM' if fam == 'C' else ('RI' if fam == 'A' else '')
     # En factura C (monotributista) no se discrimina IVA: en esta columna va
     # el importe total. En factura A queda vacía.
-    monotributista = total_num if tipo == 'FCC' else None
+    monotributista = total_num if fam == 'C' else None
 
     # El punto de venta REAL distingue facturas de un mismo proveedor con
     # igual número pero distinto PV (con el fijo se marcaban como duplicadas
     # y la segunda no se cargaba).
-    clave = '|'.join([
-        tipo or 'SIN_TIPO',
-        cuit or 'SIN_CUIT',
-        punto_venta_factura or punto_venta or 'SIN_PV',
-        numero or 'SIN_NUMERO',
-    ])
+    clave = armar_clave(tipo, cuit, punto_venta_factura or punto_venta, numero)
+    moneda_ext, tipo_cambio = _detectar_moneda_extranjera(texto)
 
     return {
         'tipo':                    tipo   or None,
@@ -226,7 +250,62 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
         'descripcion_rubro':       desc_rubro,
         'nombre_adjunto':          nombre_adjunto,
         'clave':                   clave,
+        'moneda_extranjera':       moneda_ext,    # True → importes NO están en pesos
+        'tipo_cambio':             tipo_cambio,   # el que figura en el PDF (o None)
     }
+
+
+def armar_clave(tipo, cuit, punto_venta, numero):
+    """Clave para detectar facturas repetidas: tipo|CUIT|PV|número. La usa
+    también la pantalla de revisión para recalcularla si el usuario corrige
+    alguno de esos datos."""
+    return '|'.join([
+        str(tipo or 'SIN_TIPO'),
+        str(cuit or 'SIN_CUIT'),
+        str(punto_venta or 'SIN_PV'),
+        str(numero or 'SIN_NUMERO'),
+    ])
+
+
+def clave_completa(clave):
+    """Una clave con algún dato faltante (SIN_NUMERO, SIN_CUIT...) no sirve
+    para decidir que dos facturas son la misma: dos facturas distintas sin
+    número leído tendrían la misma clave."""
+    return bool(clave) and 'SIN_' not in clave
+
+
+def _primera_copia(texto):
+    """Muchos PDFs traen ORIGINAL + DUPLICADO + TRIPLICADO (la misma factura
+    3 veces). Se lee solo la primera copia: los campos que se SUMAN (ej.
+    percepciones de IIBB por provincia) salían triplicados. Se corta recién
+    en DUPLICADO/TRIPLICADO (no en un segundo ORIGINAL) para no perder la
+    página 2 de una factura larga."""
+    m_orig = re.search(r'^\s*ORIGINAL\s*$', texto, re.M | re.I)
+    if not m_orig:
+        return texto
+    m_copia = re.search(r'^\s*(?:DUPLICADO|TRIPLICADO)\s*$', texto[m_orig.end():], re.M | re.I)
+    if not m_copia:
+        return texto
+    return texto[:m_orig.end() + m_copia.start()]
+
+
+def _detectar_moneda_extranjera(texto):
+    """
+    Facturas en dólares (u otra moneda): los importes del PDF NO están en
+    pesos. Devuelve (True/False, tipo_de_cambio_o_None). AFIP lo indica con
+    "Moneda: Dólar..." y/o la leyenda "...expresado en Dólar Estadounidense
+    ... tipo de cambio consignado de 950,00".
+    """
+    extranjera = bool(re.search(
+        r'expresado\s+en\s+(?!Pesos)[A-Za-zÁÉÍÓÚáéíóú]'
+        r'|Moneda\s*:?\s*(?:USD|U\$S|DOL|D[oó]lar|Euro|EUR)'
+        r'|\bU\$S\s*\d|\bUSD\s*\d',
+        texto, re.I))
+    if not extranjera:
+        return False, None
+    m = re.search(r'tipo\s+de\s+cambio[^\d\n]{0,40}(\d[\d.,]*)', texto, re.I)
+    tc = _num(m.group(1)) if m else None
+    return True, (tc or None)
 
 
 # ---------------------------------------------------------------------------
@@ -238,6 +317,9 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
 # sin el "(?:otras\s+)?" opcional, el número quedaba pegado a "Otras" en vez
 # de a "Unidades" y la línea completa no matcheaba (cantidad/precio vacíos).
 _UNIDAD_PATRON = r'(?:otras\s+)?unidad(?:es)?'
+# "kilogramos" es el nombre oficial de AFIP para la unidad; "kg"/"kilos" los
+# usan otros generadores. El orden importa: "kilogramos?" antes que "kilos".
+_KILO_PATRON = r'kg|kilogramos?|kilos'
 
 
 def _normalizar_unidad(raw):
@@ -272,15 +354,12 @@ def _extraer_de_tablas(pdf_bytes):
                             continue
                         cells = [str(c).strip() if c else '' for c in row]
                         row_str = ' '.join(cells)
-                        m = re.search(rf'([\d.,]+)\s*(kg|kilos|{_UNIDAD_PATRON})', row_str, re.I)
+                        m = re.search(rf'([\d.,]+)\s*({_KILO_PATRON}|{_UNIDAD_PATRON})', row_str, re.I)
                         if not m:
                             continue
                         cantidad = m.group(1)
                         unidad   = _normalizar_unidad(m.group(2))
-                        nums     = re.findall(r'[\d.,]+', row_str)
-                        # Last two numbers are typically unit price and line total
-                        precio   = nums[-2] if len(nums) >= 3 else (nums[-1] if len(nums) >= 2 else '')
-                        subtotal = nums[-1] if len(nums) >= 2 else ''
+                        precio, subtotal = _precio_y_subtotal(row_str[m.end():])
                         return {
                             'descripcion':     '',
                             'cantidad':        cantidad,
@@ -293,13 +372,38 @@ def _extraer_de_tablas(pdf_bytes):
     return None
 
 
+def _precio_y_subtotal(resto):
+    """
+    Recibe lo que viene DESPUÉS de "cantidad unidad" en la fila del producto
+    y devuelve (precio_unitario, subtotal).
+
+    El precio es el primer número después de la unidad (antes se tomaba el
+    anteúltimo de la fila, que en una factura A es la alícuota "21%": el
+    precio salía 21 y no se marcaba para revisar).
+      Factura A: Precio | %Bonif | Subtotal | Alícuota% | Subtotal c/IVA
+      Factura C: Precio | %Bonif | Imp.Bonif | Subtotal
+    Subtotal (sin IVA) = el número anterior a la alícuota "NN%" si la hay;
+    si no, el último.
+    """
+    tokens = re.findall(r'(\d[\d.,]*)\s*(%)?', resto)
+    if not tokens:
+        return '', ''
+    precio = tokens[0][0]
+    subtotal = tokens[-1][0] if len(tokens) >= 2 else ''
+    for i, (_, pct) in enumerate(tokens):
+        if pct and i >= 2:   # la alícuota (no el %bonif pegado al precio)
+            subtotal = tokens[i - 1][0]
+            break
+    return precio, subtotal
+
+
 def _extraer_linea_single(texto):
     """Single-line regex — works when pdfplumber merges table columns into one line."""
     for linea in texto.splitlines():
         linea = linea.strip()
 
         m = re.match(
-            rf'(.+?)\s+([\d.,]+)\s+(kg|kilos|{_UNIDAD_PATRON})'
+            rf'(.+?)\s+([\d.,]+)\s+({_KILO_PATRON}|{_UNIDAD_PATRON})'
             r'\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)%\s+([\d.,]+)',
             linea, re.I
         )
@@ -313,7 +417,7 @@ def _extraer_linea_single(texto):
             }
 
         m = re.match(
-            rf'(.+?)\s+([\d.,]+)\s+(kg|kilos|{_UNIDAD_PATRON})'
+            rf'(.+?)\s+([\d.,]+)\s+({_KILO_PATRON}|{_UNIDAD_PATRON})'
             r'\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)',
             linea, re.I
         )
@@ -378,13 +482,13 @@ def _extraer_multilinea(texto):
     search_start = max(0, precio_idx - 15)
     search_end   = min(len(lineas), precio_idx + 10)
     for linea in lineas[search_start:search_end]:
-        if re.match(r'^(kg|kilos)$', linea, re.I):
+        if re.match(rf'^({_KILO_PATRON})$', linea, re.I):
             unidad_encontrada = 'kg'
             break
         if re.match(rf'^{_UNIDAD_PATRON}$', linea, re.I):
             unidad_encontrada = 'unidades'
             break
-        m = re.search(rf'([\d.,]+)\s+(kg|kilos|{_UNIDAD_PATRON})', linea, re.I)
+        m = re.search(rf'([\d.,]+)\s+({_KILO_PATRON}|{_UNIDAD_PATRON})', linea, re.I)
         if m:
             unidad_encontrada = _normalizar_unidad(m.group(2))
             if not cantidad:
@@ -421,31 +525,59 @@ def _subtotal_linea(linea):
     return linea['subtotal'] if linea else ''
 
 
-def _detectar_tipo(texto):
-    if re.search(_COD_TIPO + r'1', texto, re.I):      return 'FCC'   # ...11
-    if re.search(_COD_TIPO + r'(?!1)', texto, re.I):  return 'FCA'   # ...1 (no 11)
+def _detectar_codigo(texto):
+    """Código AFIP del comprobante (1, 3, 11, 201...) o None si no figura."""
+    m = re.search(_COD_TIPO, texto, re.I)
+    return int(m.group(1)) if m else None
 
-    # Fallback: cuando el PDF tiene columnas superpuestas (ej. GRECA S.A.),
-    # pdfplumber puede desordenar "CODIGO" y el número "01"/"11" a varias
-    # líneas de distancia, rompiendo el patrón de arriba. La letra grande
-    # del recuadro (obligatoria por ley en toda factura A/B/C) suele quedar
-    # pegada a la palabra "FACTURA" — se busca solo cerca del inicio del
-    # documento para no confundirla con una A/C suelta en el cuerpo.
-    m = re.search(r'\b([AC])\b\s*FACTURA|FACTURA\s*\b([AC])\b', texto[:400], re.I)
+
+def _tipo_por_letra(texto):
+    """
+    Fallback cuando no se encuentra "COD. xx": la letra grande del recuadro
+    (obligatoria por ley en toda factura A/B/C). Devuelve 'A', 'C' o ''.
+    """
+    # Columnas superpuestas (ej. GRECA S.A.): pdfplumber puede desordenar
+    # "CODIGO" y su número, pero la letra suele quedar pegada a "FACTURA"
+    # (o "NOTA DE CRÉDITO"). Solo cerca del inicio del documento, para no
+    # confundirla con una A/C suelta en el cuerpo.
+    m = re.search(
+        r'\b([AC])\b\s*(?:FACTURA|NOTA)|(?:FACTURA|CR[EÉ]DITO|D[EÉ]BITO)\s*\b([AC])\b',
+        texto[:400], re.I)
     if m:
-        letra = (m.group(1) or m.group(2)).upper()
-        return 'FCA' if letra == 'A' else 'FCC'
+        return (m.group(1) or m.group(2)).upper()
 
-    # Fallback: otros generadores (ej. "Factura de venta") ponen el título
-    # y la letra en líneas separadas por otro texto en el medio (no pegados
-    # como arriba). Se busca una línea que sea SOLO "A" o "C" cerca del
-    # inicio del documento.
+    # Otros generadores (ej. "Factura de venta") ponen el título y la letra
+    # en líneas separadas: se busca una línea que sea SOLO "A" o "C".
     m = re.search(r'^\s*([AC])\s*$', texto[:400], re.M)
     if m:
-        letra = m.group(1).upper()
-        return 'FCA' if letra == 'A' else 'FCC'
-
+        return m.group(1).upper()
     return ''
+
+
+def _comprobante_reconocido(texto):
+    """¿Es una factura/nota A o C? (código AFIP presente o letra del recuadro).
+    Un código AFIP que no está en TIPOS_AFIP igual cuenta: se carga con el
+    tipo en VERIFICAR en vez de descartar el PDF."""
+    return _detectar_codigo(texto) is not None or _tipo_por_letra(texto) != ''
+
+
+def _detectar_tipo(texto):
+    """'FCA', 'NCA', 'NDA', 'FCC', 'NCC', 'NDC', o '' si no se puede saber."""
+    codigo = _detectar_codigo(texto)
+    if codigo is not None:
+        return TIPOS_AFIP.get(codigo, '')
+
+    letra = _tipo_por_letra(texto)
+    if not letra:
+        return ''
+    cabecera = texto[:400]
+    if re.search(r'NOTA\s+DE\s+CR[EÉ]DITO', cabecera, re.I):
+        prefijo = 'NC'
+    elif re.search(r'NOTA\s+DE\s+D[EÉ]BITO', cabecera, re.I):
+        prefijo = 'ND'
+    else:
+        prefijo = 'FC'
+    return prefijo + letra
 
 
 # CUIT del organismo que emite las "Constancia de Pago" (ej. SENASA) — no
