@@ -71,6 +71,13 @@ actualizando Facturas con normalidad.
   de cero con solo lo que trae el archivo enviado. Los maestros se leen en
   formato "raw" (la otra forma de la API devuelve vacío pasado 1 MB, y eso
   ya causó una reescritura completa el 17/09/2026) y se graban comprimidos.
+- Si el archivo corregiría más de 200 nombres/gastos/rubros ya cargados (lo
+  normal son 2 o 3), no aplica nada: casi seguro tiene las columnas corridas.
+- Un gasto o rubro vacío (o que no es un número) en el archivo enviado no
+  borra el que ya estaba guardado.
+- Dos archivos mandados casi juntos no se pisan: cada rama se lee del mismo
+  commit sobre el que se escribe, y si otro envío la movió, se reintenta.
+- Si falla una rama, las demás igual se actualizan y el aviso dice cuál falló.
 
 ## Comando /estado
 

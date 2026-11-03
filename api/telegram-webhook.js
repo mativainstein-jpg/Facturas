@@ -26,6 +26,13 @@ import { waitUntil } from '@vercel/functions';
 
 const GITHUB_API = 'https://api.github.com';
 const MIN_FILAS_VALIDAS = 100; // debajo de esto, se sospecha archivo incorrecto
+// Una carga normal corrige pocos datos (de a 2 o 3). Si un archivo corregiría
+// más que esto, casi seguro tiene las columnas corridas: no se aplica.
+const MAX_CORRECCIONES = 200;
+
+// Error del archivo enviado (no de GitHub): vale para todas las ramas, así que
+// no tiene sentido seguir intentando con las demás.
+class ErrorDeArchivo extends Error {}
 const BEJERMAN_REPO = process.env.BEJERMAN_REPO ?? 'facturas-bejerman';
 const BEJERMAN_BRANCH = process.env.BEJERMAN_BRANCH || 'main';
 const ENCABEZADO_NOMBRES = ['cuit', 'nombre'];
@@ -59,11 +66,7 @@ function parsearArchivoNuevo(buffer) {
     const cuit = String(row[idxCuit] ?? '').replace(/\D/g, '');
     if (cuit.length !== 11) continue;
     const nombre = String(row[idxNombre] ?? '').trim();
-    const gastoRaw = row[idxGasto];
-    const rubroRaw = row[idxRubro];
-    const gasto = gastoRaw === '' || gastoRaw == null ? null : Number(gastoRaw);
-    const rubro = rubroRaw === '' || rubroRaw == null ? null : Number(rubroRaw);
-    nuevo.set(cuit, { nombre, gasto, rubro });
+    nuevo.set(cuit, { nombre, gasto: codigo(row[idxGasto]), rubro: codigo(row[idxRubro]) });
   }
 
   if (nuevo.size < MIN_FILAS_VALIDAS) {
@@ -112,6 +115,13 @@ function actualizarNombres(rows, nuevoMap) {
   return { agregadosNombre: agregados, corregidosNombre: corregidos };
 }
 
+// Código de gasto/rubro: entero o null (vacío o texto raro no cuenta).
+function codigo(v) {
+  if (v === '' || v == null) return null;
+  const n = Number(v);
+  return Number.isInteger(n) ? n : null;
+}
+
 function actualizarProveedores(rows, nuevoMap) {
   const filaPorCuit = indexarPorCuit(rows);
   let agregados = 0;
@@ -121,11 +131,14 @@ function actualizarProveedores(rows, nuevoMap) {
     if (filaPorCuit.has(cuit)) {
       const i = filaPorCuit.get(cuit);
       const row = rows[i];
-      const gActual = row[1] === '' || row[1] == null ? null : Number(row[1]);
-      const ruActual = row[3] === '' || row[3] == null ? null : Number(row[3]);
-      if (gActual !== d.gasto || ruActual !== d.rubro) {
-        row[1] = d.gasto;
-        row[3] = d.rubro;
+      const gActual = codigo(row[1]);
+      const ruActual = codigo(row[3]);
+      // Un valor vacío en el archivo enviado no borra el que ya estaba.
+      const g = d.gasto ?? gActual;
+      const ru = d.rubro ?? ruActual;
+      if (g !== gActual || ru !== ruActual) {
+        row[1] = g;
+        row[3] = ru;
         corregidos++;
       }
     } else {
@@ -152,7 +165,9 @@ async function ghFetch(path, opts = {}) {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`GitHub API ${path} -> ${res.status}: ${body.slice(0, 300)}`);
+    const err = new Error(`GitHub API ${path} -> ${res.status}: ${body.slice(0, 300)}`);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
@@ -169,7 +184,9 @@ async function ghFetchBytes(path) {
   });
   if (!res.ok) {
     const body = await res.text();
-    throw new Error(`GitHub API ${path} -> ${res.status}: ${body.slice(0, 300)}`);
+    const err = new Error(`GitHub API ${path} -> ${res.status}: ${body.slice(0, 300)}`);
+    err.status = res.status;
+    throw err;
   }
   return Buffer.from(await res.arrayBuffer());
 }
@@ -201,8 +218,8 @@ function asegurarEncabezado(rows, encabezado) {
   return rows;
 }
 
-async function leerXlsxDeRama(owner, repo, branch, path) {
-  const buf = await ghFetchBytes(`/repos/${owner}/${repo}/contents/${path}?ref=${branch}`);
+async function leerXlsxDeRama(owner, repo, ref, path, branch = ref) {
+  const buf = await ghFetchBytes(`/repos/${owner}/${repo}/contents/${path}?ref=${ref}`);
   const wb = XLSX.read(buf, { type: 'buffer' });
   const sheetName = wb.SheetNames[0];
   const rows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], { header: 1, raw: true, defval: '' });
@@ -218,14 +235,32 @@ function serializarXlsx(rows, sheetName) {
   return XLSX.write(wb, { type: 'buffer', bookType: 'xlsx', compression: true });
 }
 
+// Si otro mensaje movió la rama mientras tanto, GitHub rechaza la escritura
+// (422) y se vuelve a empezar desde la versión nueva, sin perder lo del otro.
 async function actualizarRama(owner, repo, branch, nuevoMap, soloNombres = false) {
+  for (let intento = 1; ; intento++) {
+    try {
+      return await intentarActualizarRama(owner, repo, branch, nuevoMap, soloNombres);
+    } catch (err) {
+      if (err.status !== 422 || intento >= 3) throw err;
+    }
+  }
+}
+
+async function intentarActualizarRama(owner, repo, branch, nuevoMap, soloNombres) {
+  // Leer los maestros del MISMO commit sobre el que se va a escribir.
+  const ref = await ghFetch(`/repos/${owner}/${repo}/git/ref/heads/${branch}`);
+  const latestCommitSha = ref.object.sha;
+  const latestCommit = await ghFetch(`/repos/${owner}/${repo}/git/commits/${latestCommitSha}`);
+  const baseTreeSha = latestCommit.tree.sha;
+
   const { rows: rowsNombres, sheetName: sheetNombres } = await leerXlsxDeRama(
-    owner, repo, branch, 'cuit_nombre.xlsx'
+    owner, repo, latestCommitSha, 'cuit_nombre.xlsx', branch
   );
   // El programa de Bejerman no usa gasto/rubro: ahí solo se actualizan nombres.
   const { rows: rowsProv, sheetName: sheetProv } = soloNombres
     ? { rows: null, sheetName: null }
-    : await leerXlsxDeRama(owner, repo, branch, 'proveedores.xlsx');
+    : await leerXlsxDeRama(owner, repo, latestCommitSha, 'proveedores.xlsx', branch);
 
   asegurarEncabezado(rowsNombres, ENCABEZADO_NOMBRES);
   if (!soloNombres) asegurarEncabezado(rowsProv, ENCABEZADO_PROVEEDORES);
@@ -240,17 +275,21 @@ async function actualizarRama(owner, repo, branch, nuevoMap, soloNombres = false
 
   const resumen = { branch, ...rNombres, ...rProv };
 
+  const correcciones = rNombres.corregidosNombre + rProv.corregidosProv;
+  if (correcciones > MAX_CORRECCIONES) {
+    throw new ErrorDeArchivo(
+      `el archivo cambiaría ${correcciones} nombres/gastos/rubros ya cargados ` +
+        `(lo normal son pocos). Puede tener las columnas corridas: no cambié nada. ` +
+        `Si es correcto, avisale a quien mantiene el bot.`
+    );
+  }
+
   if (totalCambios === 0) {
     return { ...resumen, sinCambios: true };
   }
 
   const outNombres = serializarXlsx(rowsNombres, sheetNombres);
   const outProv = soloNombres ? null : serializarXlsx(rowsProv, sheetProv);
-
-  const ref = await ghFetch(`/repos/${owner}/${repo}/git/ref/heads/${branch}`);
-  const latestCommitSha = ref.object.sha;
-  const latestCommit = await ghFetch(`/repos/${owner}/${repo}/git/commits/${latestCommitSha}`);
-  const baseTreeSha = latestCommit.tree.sha;
 
   const blobNombres = await ghFetch(`/repos/${owner}/${repo}/git/blobs`, {
     method: 'POST',
@@ -285,7 +324,7 @@ async function actualizarRama(owner, repo, branch, nuevoMap, soloNombres = false
 
   await ghFetch(`/repos/${owner}/${repo}/git/refs/heads/${branch}`, {
     method: 'PATCH',
-    body: JSON.stringify({ sha: newCommit.sha }),
+    body: JSON.stringify({ sha: newCommit.sha, force: false }),
   });
 
   return { ...resumen, sinCambios: false };
@@ -456,14 +495,18 @@ async function procesarMensaje(message) {
       .map((s) => s.trim())
       .filter(Boolean);
 
+    // Rama por rama: si una falla por GitHub, las demás igual se actualizan y
+    // el aviso dice cuál falló. Un problema del archivo corta todo.
     const resultados = [];
+    const fallas = [];
     for (const branch of ramas) {
-      resultados.push(await actualizarRama(owner, repo, branch, nuevoMap));
+      try {
+        resultados.push(await actualizarRama(owner, repo, branch, nuevoMap));
+      } catch (err) {
+        if (err instanceof ErrorDeArchivo) throw err;
+        fallas.push(`${branch}: ${err.message.slice(0, 120)}`);
+      }
     }
-
-    const r0 = resultados[0];
-    const nuevos = r0.agregadosNombre + r0.agregadosProv;
-    const corregidos = r0.corregidosNombre + r0.corregidosProv;
 
     // Programa de Bejerman: va DESPUÉS de Facturas y aislado, para que un
     // problema acá (ej. el token sin acceso a ese repo) nunca afecte a Facturas.
@@ -478,24 +521,41 @@ async function procesarMensaje(message) {
         const motivo = /-> (403|404):/.test(err.message)
           ? 'el token de GitHub del bot no parece tener acceso al repo de Bejerman'
           : err.message.slice(0, 150);
-        lineaBejerman = `\n⚠ Bejerman: no pude actualizarlo (${motivo}). Facturas sí se actualizó.`;
+        lineaBejerman = `\n⚠ Bejerman: no pude actualizarlo (${motivo}).`;
       }
     }
+
+    const lineaFallas = fallas.length
+      ? `\n⚠ No pude actualizar estas ramas de Facturas:\n• ${fallas.join('\n• ')}`
+      : '';
+
+    if (!resultados.length) {
+      await tgSendMessage(
+        chatId,
+        `❌ No pude actualizar Facturas en ninguna rama.${lineaFallas}${lineaBejerman}`
+      );
+      return;
+    }
+
+    const r0 = resultados[0];
+    const nuevos = r0.agregadosNombre + r0.agregadosProv;
+    const corregidos = r0.corregidosNombre + r0.corregidosProv;
+    const icono = fallas.length ? '⚠' : '✅';
 
     if (nuevos + corregidos === 0) {
       await tgSendMessage(
         chatId,
-        `✅ Hecho. Revisé ${nuevoMap.size} proveedores, no había nada nuevo para actualizar.` +
-          lineaBejerman
+        `${icono} Hecho. Revisé ${nuevoMap.size} proveedores, no había nada nuevo para actualizar.` +
+          lineaFallas + lineaBejerman
       );
     } else {
       await tgSendMessage(
         chatId,
-        `✅ Hecho (leí ${nuevoMap.size} filas):\n` +
+        `${icono} Hecho (leí ${nuevoMap.size} filas):\n` +
           `• ${nuevos} nuevos\n` +
           `• ${corregidos} corregidos\n` +
-          `Ramas: ${resultados.map((r) => r.branch).join(', ')}` +
-          lineaBejerman
+          `Ramas actualizadas: ${resultados.map((r) => r.branch).join(', ')}` +
+          lineaFallas + lineaBejerman
       );
     }
   } catch (err) {
@@ -548,4 +608,6 @@ export {
   validarMaestro,
   serializarXlsx,
   actualizarRama,
+  procesarMensaje,
+  ErrorDeArchivo,
 };
