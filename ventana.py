@@ -17,6 +17,7 @@ from procesador import (
 )
 from excel_manager import crear_archivo_locales_si_falta
 from reconciliacion import ReconciliacionDialog
+from no_leidas import CARPETA_NO_LEIDAS, NOMBRE_CARPETA, abrir_carpeta_no_leidas
 
 
 def _version_app():
@@ -107,6 +108,15 @@ class VentanaFacturas(QMainWindow):
         self.btn_proveedores.clicked.connect(self._abrir_proveedores)
         secundarios.addWidget(self.btn_proveedores, 1)
 
+        self.btn_no_leidas = QPushButton('📂   Ver no leídas')
+        self.btn_no_leidas.setMinimumHeight(40)
+        self.btn_no_leidas.setToolTip(
+            f'Abre la carpeta "{NOMBRE_CARPETA}": copia de los PDF que el '
+            'programa no pudo leer, para cargarlos a mano'
+        )
+        self.btn_no_leidas.clicked.connect(self._abrir_no_leidas)
+        secundarios.addWidget(self.btn_no_leidas, 1)
+
         self.btn_gmail = QPushButton('📧  Buscar en Gmail')
         estilo.marcar(self.btn_gmail, variante='enlace')
         self.btn_gmail.setMinimumHeight(40)
@@ -116,7 +126,7 @@ class VentanaFacturas(QMainWindow):
         self.btn_gmail.clicked.connect(self._procesar_gmail)
         secundarios.addWidget(self.btn_gmail)
 
-        for b in (self.btn_excel, self.btn_proveedores, self.btn_gmail):
+        for b in (self.btn_excel, self.btn_proveedores, self.btn_no_leidas, self.btn_gmail):
             b.setCursor(Qt.PointingHandCursor)
         layout.addLayout(secundarios)
 
@@ -228,16 +238,25 @@ class VentanaFacturas(QMainWindow):
         n_parseable = sum(1 for r in resultados if r['datos'] and not r['error'])
         if n_parseable == 0:
             self._log('✗ No se pudo leer ninguna factura.')
-            QMessageBox.warning(
-                self,
-                'No se pudo leer ninguna factura',
+            copiados = any(r.get('copia_no_leida') for r in resultados)
+            caja = QMessageBox(self)
+            caja.setIcon(QMessageBox.Warning)
+            caja.setWindowTitle('No se pudo leer ninguna factura')
+            caja.setText(
                 'Ninguno de los archivos elegidos pudo procesarse.\n\n'
                 'Puede pasar si:\n'
                 '  • el PDF es una foto o imagen escaneada (no texto),\n'
                 '  • no es una factura A o C de AFIP,\n'
                 '  • el archivo está dañado.\n\n'
-                'Probá con otro archivo o revisá que sea el PDF correcto.'
+                + (f'Quedó una copia en la carpeta "{NOMBRE_CARPETA}" para '
+                   'cargarlas a mano.' if copiados else
+                   'Probá con otro archivo o revisá que sea el PDF correcto.')
             )
+            btn_ver = caja.addButton('Ver no leídas', QMessageBox.AcceptRole) if copiados else None
+            caja.addButton('Cerrar', QMessageBox.RejectRole)
+            caja.exec_()
+            if btn_ver is not None and caja.clickedButton() == btn_ver:
+                self._abrir_no_leidas()
             return
 
         dlg = ReconciliacionDialog(resultados, self)
@@ -306,7 +325,8 @@ class VentanaFacturas(QMainWindow):
             partes.append(f'\n{duplicados} ya estaban cargadas y se saltearon.')
         if errores:
             partes.append(
-                f'\n{errores} no se pudieron leer (mirá la hoja "ERRORES" del Excel).'
+                f'\n{errores} no se pudieron leer: se copiaron a la carpeta '
+                f'"{NOMBRE_CARPETA}" (y quedan anotadas en la hoja "ERRORES" del Excel).'
             )
 
         if ok == 0 and duplicados == 0 and errores == 0:
@@ -318,14 +338,14 @@ class VentanaFacturas(QMainWindow):
         caja.setIcon(QMessageBox.Information)
         caja.setWindowTitle('Terminado')
         caja.setText(mensaje)
-        if ok > 0:
-            btn_abrir = caja.addButton('Abrir Excel', QMessageBox.AcceptRole)
-            caja.addButton('Cerrar', QMessageBox.RejectRole)
-            caja.exec_()
-            if caja.clickedButton() == btn_abrir:
-                self._abrir_excel()
-        else:
-            caja.exec_()
+        btn_abrir = caja.addButton('Abrir Excel', QMessageBox.AcceptRole) if ok > 0 else None
+        btn_ver   = caja.addButton('Ver no leídas', QMessageBox.ActionRole) if errores else None
+        caja.addButton('Cerrar', QMessageBox.RejectRole)
+        caja.exec_()
+        if btn_abrir is not None and caja.clickedButton() == btn_abrir:
+            self._abrir_excel()
+        elif btn_ver is not None and caja.clickedButton() == btn_ver:
+            self._abrir_no_leidas()
 
     def _error_critico(self, mensaje):
         self._desbloquear()
@@ -360,6 +380,14 @@ class VentanaFacturas(QMainWindow):
             )
             return
         self._abrir_archivo(str(EXCEL_FACTURAS))
+
+    def _abrir_no_leidas(self):
+        if not abrir_carpeta_no_leidas():
+            QMessageBox.information(
+                self, 'Abrila a mano',
+                'No pude abrir la carpeta automáticamente.\n\n'
+                f'Está en:\n{CARPETA_NO_LEIDAS}'
+            )
 
     def _abrir_proveedores(self):
         crear_archivo_locales_si_falta()

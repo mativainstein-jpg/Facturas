@@ -19,3 +19,4 @@ build/
 dist/
 *.spec
 !ProcesadorFacturas.spec
+Facturas no leidas/

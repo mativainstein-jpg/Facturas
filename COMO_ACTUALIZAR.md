@@ -74,6 +74,13 @@ carpeta `respaldos` (se conservan las ultimas 30). Si `facturas.xlsx` no abre,
 copiar el respaldo mas reciente al lado de `procesar.bat` y renombrarlo a
 `facturas.xlsx`. La misma app lo indica si detecta el archivo danado.
 
+**Donde quedan las facturas que no se pudieron leer?**
+En la carpeta `Facturas no leidas` (al lado de `procesar.bat`). Cada PDF que
+la app no pudo leer (foto o escaneo, factura B, archivo que no es factura) se
+COPIA ahi; el original queda donde estaba. `MOTIVOS.txt` dice cuando, por que
+y de donde vino cada uno. Se abre con el boton "Ver no leidas" de la app. Esas
+facturas hay que cargarlas a mano. La actualizacion no toca esa carpeta.
+
 **Y si no quiere instalar Git?**
 La app funciona igual, pero no se actualiza sola: en ese caso le tenes que pasar
 los cambios a mano (o instalas Git despues y ya queda automatico).

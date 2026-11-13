@@ -3,6 +3,7 @@ from PyQt5.QtCore import QThread, pyqtSignal
 from pdf_parser import extraer_texto, es_texto_valido, parsear_factura, clave_completa
 from excel_manager import ExcelManager, cargar_indice_proveedores, cargar_indice_nombres
 from config import JSON_ESTADO, LABEL_PROCESADO
+from no_leidas import NOMBRE_CARPETA, guardar_no_leida
 
 
 class ProcesadorGmailWorker(QThread):
@@ -17,6 +18,11 @@ class ProcesadorGmailWorker(QThread):
 
     def cancelar(self):
         self._cancelado = True
+
+    def _copiar_no_leida(self, nombre, motivo, pdf_bytes):
+        """Copia el adjunto que no se pudo leer a "Facturas no leidas"."""
+        if guardar_no_leida(nombre, motivo, contenido=pdf_bytes):
+            self.log.emit(f'  → copiada a la carpeta "{NOMBRE_CARPETA}"')
 
     def run(self):
         try:
@@ -71,6 +77,7 @@ class ProcesadorGmailWorker(QThread):
                 self.progreso.emit(i + 1, len(pendientes))
                 self.log.emit(f'[{i+1}/{len(pendientes)}] {item["filename"]}')
 
+                pdf_bytes = None
                 try:
                     pdf_bytes = descargar_adjunto(service, item['message_id'], item['attachment_id'])
                     texto = extraer_texto(pdf_bytes)
@@ -78,6 +85,8 @@ class ProcesadorGmailWorker(QThread):
                     if not es_texto_valido(texto):
                         self.log.emit(f'  ⚠ Tipo no reconocido o texto insuficiente')
                         excel.registrar_error(item['filename'], 'Texto PDF insuficiente o tipo no reconocido')
+                        self._copiar_no_leida(item['filename'], 'Texto PDF insuficiente o tipo no reconocido',
+                                              pdf_bytes)
                         estado.add(item['clave'])
                         errores += 1
                         continue
@@ -122,6 +131,8 @@ class ProcesadorGmailWorker(QThread):
                     errores += 1
                     self.log.emit(f'  ✗ Error: {e}')
                     excel.registrar_error(item['filename'], str(e))
+                    if pdf_bytes:   # si falló antes de descargar, no hay archivo para copiar
+                        self._copiar_no_leida(item['filename'], str(e), pdf_bytes)
                     estado.add(item['clave'])
 
         finally:
@@ -201,6 +212,7 @@ class ProcesadorLocalWorker(QThread):
                 'error':      None,
                 'dup_clave':  False,
                 'dup_nombre': False,
+                'copia_no_leida': False,
             }
             try:
                 pdf_bytes = ruta.read_bytes()
@@ -224,6 +236,11 @@ class ProcesadorLocalWorker(QThread):
 
             if entry['error']:
                 self.log.emit(f'  ✗ No se pudo leer: {entry["error"]}')
+                # Copia del PDF a la carpeta "Facturas no leidas" (el
+                # original no se toca), para que quede a la vista qué falta.
+                if guardar_no_leida(ruta.name, entry['error'], ruta=ruta):
+                    entry['copia_no_leida'] = True
+                    self.log.emit(f'  → copiada a la carpeta "{NOMBRE_CARPETA}"')
 
             resultados.append(entry)
 
