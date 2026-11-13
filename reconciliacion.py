@@ -13,6 +13,7 @@ from PyQt5.QtWidgets import (
 )
 
 import estilo
+from no_leidas import NOMBRE_CARPETA
 
 try:
     import fitz as _fitz
@@ -216,11 +217,15 @@ class ReconciliacionDialog(QDialog):
                               for r in fallidos[:15])
             if len(fallidos) > 15:
                 lista += f'\n  … y {len(fallidos) - 15} más'
+            copiados = any(r.get('copia_no_leida') for r in fallidos)
+            donde = (f'Quedó una copia en la carpeta "{NOMBRE_CARPETA}" '
+                     '(botón "Ver no leídas" en la ventana principal).\n\n'
+                     if copiados else '')
             QTimer.singleShot(300, lambda: QMessageBox.warning(
                 self, 'PDFs que no se pudieron leer',
                 f'{len(fallidos)} PDF(s) no se pudieron leer y NO se van a cargar '
                 f'(quedan anotados en la hoja ERRORES):\n\n{lista}\n\n'
-                'Cargalos a mano si corresponde.'))
+                f'{donde}Cargalos a mano si corresponde.'))
 
     # ------------------------------------------------------------------
     # Construcción de UI
