@@ -8,10 +8,25 @@ from config import CUIT_NAIMAN, NOMBRE_NAIMAN, COLS, PUNTO_VENTA_FIJO, TIPOS_AFI
 # Extracción de texto
 # ---------------------------------------------------------------------------
 
+# Rótulos de AFIP que aparecen PEGADOS cuando pdfplumber no detecta los
+# espacios entre palabras (letras muy juntas en el PDF): "RazónSocial:",
+# "FechadeEmisión:", etc. Si aparecen, se vuelve a leer con una tolerancia
+# más fina, que sí separa las palabras (si no, el nombre del proveedor salía
+# "CORBETTAJORGEGUILLERMO FechadeEmisión").
+_RE_SIN_ESPACIOS = re.compile(
+    r'Raz[oó]nSocial|PuntodeVenta|FechadeEmisi|Condici[oó]nfrente|ImporteTotal', re.I)
+
+
 def extraer_texto(pdf_bytes):
     with pdfplumber.open(io.BytesIO(pdf_bytes)) as pdf:
         paginas = [p.extract_text() or '' for p in pdf.pages]
-    return '\n'.join(paginas)
+        texto = '\n'.join(paginas)
+        if _RE_SIN_ESPACIOS.search(texto):
+            finas = [p.extract_text(x_tolerance=1.5) or '' for p in pdf.pages]
+            texto_fino = '\n'.join(finas)
+            if not _RE_SIN_ESPACIOS.search(texto_fino):
+                texto = texto_fino
+    return texto
 
 
 # Etiqueta "Cód." del tipo de comprobante: algunos generadores (ej. Contabilium)
@@ -776,7 +791,8 @@ def _limpiar_texto(texto):
     # por tokens SIN acento ("Fecha", "Condici") en vez de "Emisión"/"Condición",
     # para que el corte funcione aunque el acento venga codificado distinto
     # (tilde combinada) — que es lo que dejaba "Fecha de Emisión" en el nombre.
-    texto = re.sub(r'\s*Fecha\b.*',            '', texto, flags=re.I)
+    # "Fecha" también pegado a "de" ("FechadeEmisión", PDF sin espacios).
+    texto = re.sub(r'\s*Fecha(?:\b|de).*',      '', texto, flags=re.I)
     texto = re.sub(r'\s*CUIT.*',               '', texto, flags=re.I)
     texto = re.sub(r'\s*Condici.*',            '', texto, flags=re.I)
     texto = re.sub(r'\s*Domicilio.*',          '', texto, flags=re.I)
