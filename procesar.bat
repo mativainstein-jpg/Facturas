@@ -19,6 +19,10 @@ python actualizar.py
 
 REM ── Instalar lo que falte (rapido si ya esta todo) ──────────
 python -m pip install -q -r requirements.txt 2>nul
+if errorlevel 1 (
+    echo  [i] No se pudieron instalar/actualizar algunas librerias.
+    echo      Se abre igual con lo que ya esta instalado.
+)
 
 REM ── Iniciar la aplicacion ───────────────────────────────────
 python main.py
