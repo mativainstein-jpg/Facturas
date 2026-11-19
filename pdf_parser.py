@@ -297,8 +297,10 @@ def _detectar_moneda_extranjera(texto):
     """
     extranjera = bool(re.search(
         r'expresado\s+en\s+(?!Pesos)[A-Za-zÁÉÍÓÚáéíóú]'
-        r'|Moneda\s*:?\s*(?:USD|U\$S|DOL|D[oó]lar|Euro|EUR)'
-        r'|\bU\$S\s*\d|\bUSD\s*\d',
+        r'|Moneda\s*:?\s*(?:USD|U\$S|DOL|D[oó]lar|Euro|EUR)',
+        # Solo las marcas oficiales de AFIP: un "U$S 0,5" suelto en la
+        # descripción (ej. "a U$S0,5 el km") NO hace que la factura sea en
+        # dólares — antes sí, y una factura en pesos salía como en dólares.
         texto, re.I))
     if not extranjera:
         return False, None
