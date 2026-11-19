@@ -148,6 +148,8 @@ def test_copias_y_moneda():
     d = parse(usd)
     chequear('Factura en dólares detectada', (d['moneda_extranjera'], d['tipo_cambio']), (True, 1050.5))
     chequear('"Moneda: USD"', parse(FACTURA_A + 'Moneda: USD\n')['moneda_extranjera'], True)
+    desc = _con(FACTURA_A, 'Importe Neto Gravado', 'los días 07/10/26 a U$S0,5 el km corrido\nImporte Neto Gravado')
+    chequear('"U$S0,5" en la descripción NO la hace en dólares (BERTERO)', parse(desc)['moneda_extranjera'], False)
 
 
 def test_clave():
