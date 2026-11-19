@@ -159,6 +159,15 @@ def test_clave():
     chequear('armar_clave', P.armar_clave('NCC', '20-30164873-2', '2', '45'), 'NCC|20-30164873-2|2|45')
 
 
+def test_nombre_pegado():
+    print('\nPDF sin espacios entre palabras')
+    pegado = _con(FACTURA_A, 'Razón Social: AGRO PROVEEDOR SA',
+                  'RazónSocial: CORBETTAJORGEGUILLERMO FechadeEmisión: 29/10/2026')
+    chequear('el nombre no arrastra "FechadeEmisión"', parse(pegado)['denominacion'], 'CORBETTAJORGEGUILLERMO')
+    chequear('_limpiar_texto corta "FechadeEmisión"',
+             P._limpiar_texto('CORBETTA JORGE FechadeEmisión: 29/10/2026'), 'CORBETTA JORGE')
+
+
 def test_numeros():
     print('\nNúmeros')
     chequear('1.234,56 (AR)', P._num('1.234,56'), 1234.56)
@@ -203,6 +212,7 @@ if __name__ == '__main__':
     test_precio_tabla()
     test_copias_y_moneda()
     test_clave()
+    test_nombre_pegado()
     test_numeros()
     test_fila_excel()
     print()
