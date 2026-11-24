@@ -82,6 +82,17 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
                 punto_venta_factura = m.group(1)
             if not numero:
                 numero = m.group(2)
+    if not numero or not punto_venta_factura:
+        # Fallback: otros generadores (ej. RUTAS SUR, peajes) ponen el número
+        # solo, sin rótulo, en una línea propia cerca del inicio:
+        # "0002-01049836". Exige 1-5 dígitos, guion y 8 dígitos y nada más en
+        # la línea: no lo confunde con un CUIT (2-8-1) ni con una fecha.
+        m = re.search(r'^\s*(\d{1,5})\s*-\s*(\d{8})\s*$', texto[:600], re.M)
+        if m:
+            if not punto_venta_factura:
+                punto_venta_factura = str(int(m.group(1)))
+            if not numero:
+                numero = str(int(m.group(2)))
     if not punto_venta_factura:
         # Fallback: los PDF descargados de AFIP/ARCA se llaman
         # cuit_tipo_puntoventa_numero.pdf (ej. 20301648732_001_00003_00000096.pdf)
@@ -169,6 +180,14 @@ def parsear_factura(texto, nombre_adjunto, indice_proveedores=None, pdf_bytes=No
     iva_num      = sum(monto for _, monto in ivas) or (None if fam != 'C' else 0.0)
     total_num    = _num_o_none(total)
     precio_num   = _num(precio_raw)
+
+    # Último recurso para el neto: si la factura A no dice "Importe Neto
+    # Gravado" ni "Subtotal" (ej. RUTAS SUR, peajes) pero sí el total y el
+    # IVA, el neto es la diferencia. Solo corre cuando el neto quedaba vacío:
+    # las facturas que ya lo leen no cambian.
+    if (neto_num is None and fam == 'A' and total_num and iva_num
+            and total_num - iva_num - _num(otros) > 0):
+        neto_num = round(total_num - iva_num - _num(otros), 2)
 
     # Tasa de IVA: monotributista (FCC) siempre 0; en factura A, la única
     # alícuota con importe > 0. Si hay varias (factura mixta) o ninguna,
