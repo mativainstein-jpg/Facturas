@@ -161,6 +161,32 @@ def test_clave():
     chequear('armar_clave', P.armar_clave('NCC', '20-30164873-2', '2', '45'), 'NCC|20-30164873-2|2|45')
 
 
+def test_formato_peaje():
+    print('\nFormato RUTAS SUR (peajes): número sin rótulo y neto por diferencia')
+    peaje = """A
+FACTURA
+Código: 1
+0002-01049836
+Fecha: 13/10/2026
+Rutas Sur Atlantico S.A. IVA: Responsable Inscripto
+Av. Libertador 498 piso 15 CUIT: 30-71945419-0
+FECHA INICIO ACTIVIDADES: 18-05-2026
+I.V.A.: Responsable Inscripto en IVA C.U.I.T.: 33-70895549-9
+Cantidad Descripción Importe
+5 PASOS AGÜERO - AU.RICCHIERI KM 15,80 $ 6,597.01
+5 PASOS TRISTAN SUAREZ - AU. EZE-CAÑ KM 37,25 $ 6,597.01
+1 IVA 21% $ 2,770.74
+Son: Pesos quince mil novecientos sesenta y cuatro Importe Total: $15,964.76
+CAE Nº: 86417527160408
+"""
+    d = parse(peaje)
+    chequear('PV y número de "0002-01049836"', (d['punto_venta_factura'], d['numero']), ('2', '1049836'))
+    chequear('neto = total − IVA', (d['neto_num'], d['iva_num'], d['total_num']), (13194.02, 2770.74, 15964.76))
+    chequear('una fecha "18-05-2026" o un CUIT no se toman como número',
+             P.parsear_factura(_con(peaje, '0002-01049836\n', ''), 'x.pdf')['numero'], None)
+    chequear('si la factura trae el neto, se usa ese (no la diferencia)', parse(FACTURA_A)['neto_num'], 100000.0)
+
+
 def test_nombre_pegado():
     print('\nPDF sin espacios entre palabras')
     pegado = _con(FACTURA_A, 'Razón Social: AGRO PROVEEDOR SA',
@@ -214,6 +240,7 @@ if __name__ == '__main__':
     test_precio_tabla()
     test_copias_y_moneda()
     test_clave()
+    test_formato_peaje()
     test_nombre_pegado()
     test_numeros()
     test_fila_excel()
